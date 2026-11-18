@@ -1,0 +1,2608 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asuka-FM & DiP: Efficient DiT Research</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js">
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js">
+    </script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '$', right: '$', display: false },
+                    { left: '\\(', right: '\\)', display: false },
+                    { left: '\\[', right: '\\]', display: true }
+                ],
+                ignoredClasses: ["no-math"],
+                throwOnError: false
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <header class="hero">
+        <div class="container">
+            <h1>Asuka-FM: A System-Architectural Co-Design Framework for Efficient Text-to-Image Pretraining on Consumer
+                Hardware</h1>
+            <p class="subtitle">
+                Pretraining a competitive ~206M dual-stream Diffusion Transformer from scratch on a single consumer GPU
+                (NVIDIA RTX 4090) in ~160 hours for under $55.
+            </p>
+            <div class="authors">
+                <span class="author-name">Víctor Rodrigo González<sup>1</sup></span>,
+                <span class="author-name">Pablo M. Olmos<sup>1</sup></span>,
+                <span class="author-name">Ignacio Peis<sup>2</sup></span>,
+                <span class="author-name">Alejandro Lancho<sup>1</sup></span>
+            </div>
+            <div class="affiliations">
+                <span><sup>1</sup>Department of Signal Theory and Communications, Universidad Carlos III de Madrid
+                    (UC3M), Spain</span> &bull;
+                <span><sup>2</sup>Technical University of Denmark (DTU), Denmark</span>
+            </div>
+            <div class="resource-links">
+                <a href="https://github.com/deeplearningcafe/asuka-fm" target="_blank" rel="noopener noreferrer"
+                    class="btn-resource">
+                    <span class="icon">&lt;/&gt;</span> Code
+                </a>
+                <a href="https://huggingface.co/aipracticecafe/asuka-fm" target="_blank" rel="noopener noreferrer"
+                    class="btn-resource">
+                    <span class="icon">&#129303;</span> Model (Open-Domain)
+                </a>
+                <a href="https://huggingface.co/aipracticecafe/dual-stream-dit" target="_blank" rel="noopener noreferrer"
+                    class="btn-resource">
+                    <span class="icon">&#129303;</span> Model (Anime)
+                </a>
+                <a href="https://huggingface.co/datasets/aipracticecafe/i1-dataset" target="_blank"
+                    rel="noopener noreferrer" class="btn-resource">
+                    <span class="icon">&#128190;</span> Data (625K Open)
+                </a>
+                <a href="https://huggingface.co/datasets/aipracticecafe/curated-danbooru-2026" target="_blank"
+                    rel="noopener noreferrer" class="btn-resource">
+                    <span class="icon">&#128190;</span> Data (337K Anime)
+                </a>
+                <span class="btn-resource disabled-resource" title="arXiv preprint releasing soon">
+                    <span class="icon">&#128196;</span> arXiv (Coming Soon)
+                </span>
+
+            </div>
+            <div class="tag-row">
+                <span class="badge">206M Dual-Stream DiT</span>
+                <span class="badge">1&times; RTX 4090 ($53.20)</span>
+                <span class="badge">SPRINT 75% Sparsification</span>
+                <span class="badge">Continuous Aspect RoPE</span>
+                <span class="badge">Decoupled Pixel Adaptation (DiP)</span>
+                <span class="badge">Optimal Transport Flow Matching</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card intro-overview-card" id="overview">
+            <h2>Overview: Pareto Frontier & Visual Synthesis</h2>
+            <p class="section-desc">
+                Frontier text-to-image foundation models require multi-billion parameter DiTs and industrial clusters.
+                <strong>Asuka-FM</strong> co-designs model architecture, attention sparsity, and memory pipelines to
+                push
+                the extreme low-compute Pareto efficiency frontier on consumer workstations.
+            </p>
+
+            <!-- Pareto Frontier & Summary Table -->
+            <div class="pareto-table-grid">
+                <div class="pareto-col">
+                    <div class="pareto-img-box">
+                        <img src="images/figure_pareto_frontier.png"
+                            alt="Compute Pareto Frontier: Denoiser Training FLOPs vs DPG-Bench">
+                    </div>
+                    <span class="img-caption">(a) Denoiser training compute (ZFLOPs, log scale) vs. compositional
+                        alignment (DPG-Bench).</span>
+                </div>
+
+                <div class="table-col">
+                    <div class="summary-table-wrap">
+                        <table class="summary-benchmark-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Params</th>
+                                    <th>Hardware Budget</th>
+                                    <th>GenEval &uarr;</th>
+                                    <th>DPG &uarr;</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="table-category-row">
+                                    <td colspan="5">Industrial Foundation Models</td>
+                                </tr>
+                                <tr>
+                                    <td>SD3 Medium</td>
+                                    <td>2.0B</td>
+                                    <td>Massive Cluster</td>
+                                    <td>0.620</td>
+                                    <td>84.08</td>
+                                </tr>
+                                <tr class="table-category-row">
+                                    <td colspan="5">Accessible Academic Baselines</td>
+                                </tr>
+                                <tr>
+                                    <td>MiniT2I-L/16</td>
+                                    <td>0.91B</td>
+                                    <td>8&times; H100 (27 Days)</td>
+                                    <td>0.883<sup>&dagger;</sup></td>
+                                    <td>84.80</td>
+                                </tr>
+                                <tr class="table-category-row highlighted-category">
+                                    <td colspan="5">Asuka-FM (Consumer GPU, Open Data, No Prompt FT)</td>
+                                </tr>
+                                <tr class="highlight-asuka-row">
+                                    <td><strong>Asuka-512 (Ours)</strong></td>
+                                    <td><strong>0.21B</strong></td>
+                                    <td><strong>1&times; RTX 4090 (81h)</strong></td>
+                                    <td><strong>0.609</strong></td>
+                                    <td><strong>78.51</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <span class="img-caption">
+                        (c) Representative benchmark summary across foundation models and academic baselines
+                        (<sup>&dagger;</sup>denotes fine-tuning on BLIP3o-60K).
+                    </span>
+                </div>
+            </div>
+
+            <div class="showcase-container">
+                <div class="showcase-header">
+                    <h3>Zero-Shot Synthesis Showcase</h3>
+                    <div class="showcase-switch-row">
+                        <button class="btn btn-secondary active-preset" id="btnShowcaseAnime">
+                            Anime Domain (Danbooru)
+                        </button>
+                        <button class="btn btn-secondary" id="btnShowcaseReal">
+                            Open-Domain / Real-World
+                        </button>
+                    </div>
+                </div>
+
+                <div class="showcase-display-frame">
+                    <img id="showcaseImg" src="images/anime_showcase_grid.png"
+                        alt="Asuka-FM High-Quality Zero-Shot Samples">
+                </div>
+
+                <p class="img-caption" id="showcaseCaption">
+                    <strong>Anime Domain:</strong> Zero-shot synthesis from our 206M dual-stream backbone
+                    pretrained on 337K Danbooru illustrations. Demonstrates sharp linework, anatomical consistency, and
+                    multi-concept binding without human aesthetic post-filtering.
+                </p>
+            </div>
+        </section>
+
+        <!-- 1. Pipeline Flowchart -->
+        <section class="card" id="pipeline">
+            <h2>1. Multi-Stage Research &amp; Training Pipeline</h2>
+            <p class="section-desc">
+                Click any completed stage below to inspect exact epoch schedules,
+                token drop ratios, throughput, and compute budgets measured on a
+                single consumer <strong>NVIDIA RTX 4090 (24 GB, $0.33/hr)</strong>:
+            </p>
+
+            <div class="pipeline-container">
+                <!-- Big Box 1: Pretraining -->
+                <div class="pipeline-stage active-stage" id="stagePretrain">
+                    <div class="stage-title">1. Latent Pretraining (Completed)</div>
+                    <div class="sub-stages">
+                        <button class="sub-box active-sub" id="btnSub256">
+                            <span class="sub-title">256px Base (625K Open)</span>
+                            <span class="sub-meta">68.0h &bull; DPG-Bench 78.96 &bull; Dense &bull; $22.44</span>
+                        </button>
+                        <button class="sub-box" id="btnSub512">
+                            <span class="sub-title">512px High-Res (625K Open)</span>
+                            <span class="sub-meta">81.0h &bull; 2&times; Scale &bull; GenEval 0.609 &bull; $26.73</span>
+                        </button>
+                        <button class="sub-box" id="btnSub1MP">
+                            <span class="sub-title">1MP Study (337K Danbooru)</span>
+                            <span class="sub-meta">89.0h &bull; VAE Wall &amp; Dense Recovery</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="pipeline-arrow">&rarr;</div>
+
+                <!-- Big Box 2: Pixel Transition (Now Completed!) -->
+                <div class="pipeline-stage completed-stage" id="stagePixel">
+                    <div class="stage-title">2. Pixel Adaptation (Completed)</div>
+                    <div class="sub-stages">
+                        <button class="sub-box" id="btnSubPixel">
+                            <span class="sub-title">DiP U-Net Head (+10.09M)</span>
+                            <span class="sub-meta">57.65h &bull; Zero VAE Decode &bull; $19.04</span>
+                        </button>
+                        <div class="sub-box disabled-sub">
+                            <span class="sub-title">Native $v$-Prediction</span>
+                            <span class="sub-meta">No Clipping &bull; GenEval 0.568 / DPG 75.31</span>
+                        </div>
+                        <div class="sub-box disabled-sub">
+                            <span class="sub-title">100K Synth &rarr; 396K Real SFT</span>
+                            <span class="sub-meta">Up to 3.34&times; Faster at $N=1$ Step</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pipeline-arrow">&rarr;</div>
+
+                <!-- Big Box 3: Future Post-Training -->
+                <div class="pipeline-stage future-stage" id="stageRL">
+                    <div class="stage-title">3. Post-Training (Future Work)</div>
+                    <div class="sub-stages">
+                        <div class="sub-box disabled-sub">
+                            <span class="sub-title">Zero-Decode Flow-GRPO</span>
+                            <span class="sub-meta">Online RL without VAE Rollout Wall</span>
+                        </div>
+                        <div class="sub-box disabled-sub">
+                            <span class="sub-title">Few-Step Distillation</span>
+                            <span class="sub-meta">$N \le 4$ Steps ($1.44\times$&ndash;$3.34\times$ Speedup)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic Metric Banner -->
+            <div id="stageBanner" class="stage-banner">
+                <div class="banner-header">
+                    <h3 id="bannerTitle">
+                        Stage 1: 256px Base Semantic Pretraining (625K Open Corpus)
+                    </h3>
+                    <span class="banner-highlight no-math" id="bannerHighlight">
+                        68.0h DiT ($22.44) + 3.8h Offline VAE ($1.27)
+                    </span>
+                </div>
+                <div class="banner-grid" id="bannerGrid">
+                    <div class="banner-stat">
+                        <span class="stat-label">Phase 1A: SPRINT Sparse</span>
+                        <span class="stat-val">75 Ep &bull; 47.0h ($15.51)</span>
+                        <span class="stat-desc">
+                            r = 0.75 (64 active tok), 282.6 img/s, 86.8% MFU<sub>act</sub>, 23.74 EFLOPs
+                        </span>
+                    </div>
+                    <div class="banner-stat">
+                        <span class="stat-label">Phase 1B/1C: Dense Refine + WSD</span>
+                        <span class="stat-val">20 Ep &bull; 21.0h ($6.93)</span>
+                        <span class="stat-desc">
+                            r = 0.00 (256 tok), 172.5 img/s, 73.4% MFU<sub>act</sub>, WSD &rarr; 10<sup>-5</sup>
+                        </span>
+                    </div>
+                    <div class="banner-stat">
+                        <span class="stat-label">Memory &amp; Benchmarks (256&sup2;)</span>
+                        <span class="stat-val">GenEval 0.588 / DPG 78.96</span>
+                        <span class="stat-desc">
+                            52 GB latents cached in RAM (0% VAE wall); Danbooru 337K: 58.0h ($19.14)
+                        </span>
+                    </div>
+                </div>
+                <div class="banner-footer" id="bannerSummary">
+                    In-RAM latent caching eliminates disk I/O and VAE overhead at 256&sup2;;
+                    SPRINT 75% dropping + continuous aspect RoPE anchor global layout at 86.8% physical
+                    MFU<sub>act</sub>.
+                </div>
+            </div>
+
+            <!-- Architecture Diagram -->
+            <div class="arch-box">
+                <h3>Dual-Stream SPRINT Transformer Architecture (206.12M Pretraining Params)</h3>
+                <div class="arch-diagram">
+                    <svg viewBox="0 0 760 170" width="100%" height="170">
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6"
+                                orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
+                            </marker>
+                            <marker id="arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6"
+                                markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1 L 10 5 L 0 9 z" fill="#ef4444" />
+                            </marker>
+                        </defs>
+
+                        <!-- Image Path -->
+                        <rect x="10" y="20" width="110" height="42" rx="4" fill="#1e293b" stroke="#3b82f6"
+                            stroke-width="2" />
+                        <text x="65" y="39" fill="#f8fafc" font-size="11" text-anchor="middle">Patchify (p=2)</text>
+                        <text x="65" y="53" fill="#94a3b8" font-size="9" text-anchor="middle">Aspect RoPE</text>
+
+                        <line x1="120" y1="41" x2="148" y2="41" stroke="#64748b" stroke-width="2"
+                            marker-end="url(#arrow)" />
+
+                        <!-- Shallow Blocks -->
+                        <rect x="150" y="15" width="105" height="122" rx="4" fill="#0f172a" stroke="#10b981"
+                            stroke-width="2" />
+                        <text x="202" y="38" fill="#34d399" font-size="11" text-anchor="middle" font-weight="bold">
+                            Encoder Blocks
+                        </text>
+                        <text x="202" y="58" fill="#94a3b8" font-size="9.5" text-anchor="middle">(2&times; Dense
+                            Layers)</text>
+                        <text x="202" y="78" fill="#94a3b8" font-size="9.5" text-anchor="middle">AdaLN-Free
+                            MM-Attn</text>
+                        <text x="202" y="98" fill="#94a3b8" font-size="9.5" text-anchor="middle">Sandwich RMSNorm</text>
+                        <text x="202" y="118" fill="#cbd5e1" font-size="9.5" text-anchor="middle">Full Token Set
+                            N</text>
+
+                        <!-- Text & Time Path Input -->
+                        <rect x="10" y="82" width="110" height="48" rx="4" fill="#1e293b" stroke="#8b5cf6"
+                            stroke-width="2" />
+                        <text x="65" y="100" fill="#f8fafc" font-size="10" text-anchor="middle">LFM2.5-230M +
+                            Adapter</text>
+                        <text x="65" y="116" fill="#c4b5fd" font-size="9" text-anchor="middle">[z_time || c_text]</text>
+
+                        <line x1="120" y1="106" x2="148" y2="106" stroke="#64748b" stroke-width="2"
+                            marker-end="url(#arrow)" />
+
+                        <!-- SPRINT Token Drop Point -->
+                        <line x1="255" y1="40" x2="313" y2="40" stroke="#ef4444" stroke-width="2"
+                            marker-end="url(#arrow-red)" />
+                        <rect x="263" y="25" width="42" height="30" rx="3" fill="#450a0a" stroke="#ef4444" />
+                        <text x="284" y="44" fill="#fca5a5" font-size="10" text-anchor="middle">-75%</text>
+
+                        <!-- Deep Blocks -->
+                        <rect x="315" y="15" width="140" height="80" rx="4" fill="#0f172a" stroke="#ef4444"
+                            stroke-width="2" />
+                        <text x="385" y="38" fill="#f87171" font-size="11" text-anchor="middle" font-weight="bold">
+                            Deep Middle Path
+                        </text>
+                        <text x="385" y="56" fill="#94a3b8" font-size="9.5" text-anchor="middle">9&times; Sparse (25%
+                            Tokens)</text>
+                        <text x="385" y="74" fill="#94a3b8" font-size="9" text-anchor="middle">78.4% of Backbone
+                            Weights</text>
+
+                        <!-- Scatter / Restore -->
+                        <line x1="455" y1="55" x2="488" y2="55" stroke="#64748b" stroke-width="2"
+                            marker-end="url(#arrow)" />
+                        <rect x="490" y="35" width="52" height="40" rx="3" fill="#1e293b" stroke="#64748b" />
+                        <text x="516" y="52" fill="#f8fafc" font-size="9" text-anchor="middle">Scatter</text>
+                        <text x="516" y="66" fill="#94a3b8" font-size="9" text-anchor="middle">+ [M]</text>
+
+                        <!-- Residual Connection -->
+                        <path d="M 255 88 L 284 88 L 284 122 L 600 122 L 600 88" fill="none" stroke="#10b981"
+                            stroke-width="2" stroke-dasharray="4" marker-end="url(#arrow)" />
+                        <text x="435" y="136" fill="#34d399" font-size="10" text-anchor="middle">
+                            Dense Shallow Skip Connection f_t
+                        </text>
+
+                        <!-- Fusion & Decoder -->
+                        <rect x="550" y="25" width="102" height="60" rx="4" fill="#0f172a" stroke="#3b82f6"
+                            stroke-width="2" />
+                        <text x="601" y="45" fill="#60a5fa" font-size="10" text-anchor="middle" font-weight="bold">
+                            Residual Fusion
+                        </text>
+                        <text x="601" y="60" fill="#94a3b8" font-size="9" text-anchor="middle">W_fuse[f_t ||
+                            g_pad]</text>
+                        <text x="601" y="74" fill="#94a3b8" font-size="9" text-anchor="middle">+ 2&times; Decoder
+                            Blocks</text>
+
+                        <!-- Out -->
+                        <line x1="652" y1="55" x2="678" y2="55" stroke="#64748b" stroke-width="2"
+                            marker-end="url(#arrow)" />
+                        <rect x="680" y="32" width="70" height="46" rx="4" fill="#1e293b" stroke="#3b82f6" />
+                        <text x="715" y="52" fill="#f8fafc" font-size="10" text-anchor="middle">Unpatchify</text>
+                        <text x="715" y="66" fill="#94a3b8" font-size="8.5" text-anchor="middle">or PDH (RGB)</text>
+                    </svg>
+                </div>
+
+                <!-- SPRINT Structured Token Lifecycle Telemetry -->
+                <div class="patch-breakdown">
+                    <div class="breakdown-step">
+                        <span class="step-title">1. Image Input</span>
+                        <span class="step-val">512 &times; 512 &times; 3</span>
+                        <span class="step-sub">Shifted Static Crop</span>
+                    </div>
+                    <span class="step-arrow">&rarr;</span>
+                    <div class="breakdown-step">
+                        <span class="step-title">2. FLUX.2 VAE</span>
+                        <span class="step-val">64 &times; 64 &times; 32</span>
+                        <span class="step-sub">f=8 Latent Space</span>
+                    </div>
+                    <span class="step-arrow">&rarr;</span>
+                    <div class="breakdown-step">
+                        <span class="step-title">3. Patchify (p=2)</span>
+                        <span class="step-val">32 &times; 32 = 1024</span>
+                        <span class="step-sub">Effective P=16 Tokens</span>
+                    </div>
+                    <span class="step-arrow">&rarr;</span>
+                    <div class="breakdown-step drop-step">
+                        <span class="step-title">4. SPRINT Subsample</span>
+                        <span class="step-val">256 Active Tokens</span>
+                        <span class="step-sub">75% Drop (2&times;2 Group)</span>
+                    </div>
+                    <span class="step-arrow">&rarr;</span>
+                    <div class="breakdown-step">
+                        <span class="step-title">5. Mask Restoration</span>
+                        <span class="step-val">1024 Fused Tokens</span>
+                        <span class="step-sub">Dense Skip + [M] Tokens</span>
+                    </div>
+                </div>
+
+                <!-- 1.1 SPRINT Compute & Memory Frontier Explorer -->
+                <div class="frontier-container">
+                    <div class="frontier-header">
+                        <h4>1.1 SPRINT Compute &amp; Memory Frontier Explorer</h4>
+                        <span class="frontier-badge">&amp; RTX 4090 Telemetry</span>
+                    </div>
+                    <p class="section-desc">
+                        Adjust target resolution, structured $2 \times 2$ drop ratio ($r$),
+                        and micro-batch size to inspect visual sequence length $N$,
+                        FLOP reduction against a homogeneous 13-layer DiT, and 1MP hardware limits:
+                    </p>
+
+                    <div class="frontier-controls">
+                        <div class="control-block">
+                            <label>Target Resolution:</label>
+                            <div class="btn-group" id="resBtnGroup">
+                                <button class="btn-pill" data-res="256">256px Base</button>
+                                <button class="btn-pill active-pill" data-res="512">512px High-Res</button>
+                                <button class="btn-pill" data-res="1024">1024px (1MP)</button>
+                            </div>
+                        </div>
+
+                        <div class="control-block">
+                            <label>SPRINT Token Drop Ratio ($r$):</label>
+                            <div class="btn-group" id="dropBtnGroup">
+                                <button class="btn-pill" data-drop="0.0">0% (Dense)</button>
+                                <button class="btn-pill" data-drop="0.50">50% Drop</button>
+                                <button class="btn-pill active-pill" data-drop="0.75">75% Drop</button>
+                                <button class="btn-pill" data-drop="0.875">87.5% Drop</button>
+                            </div>
+                        </div>
+
+                        <div class="control-block">
+                            <label>Micro-Batch Size:</label>
+                            <div class="btn-group" id="batchBtnGroup">
+                                <button class="btn-pill" data-bs="8">8</button>
+                                <button class="btn-pill" data-bs="16">16</button>
+                                <button class="btn-pill" data-bs="32">32</button>
+                                <button class="btn-pill active-pill" data-bs="64">64</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Metrics & Structured Grid -->
+                    <div class="frontier-display">
+                        <div class="frontier-telemetry">
+                            <div class="f-metric">
+                                <span class="f-label">Total Sequence ($N$)</span>
+                                <span class="f-val" id="metricTotalN">1,024 tokens</span>
+                                <span class="f-sub" id="metricGridSub">32 &times; 32 Patch Grid</span>
+                            </div>
+                            <div class="f-metric">
+                                <span class="f-label">Active Middle Tokens</span>
+                                <span class="f-val text-accent" id="metricActiveN">256 tokens</span>
+                                <span class="f-sub" id="metricActiveSub">9 Sparse Blocks (25%)</span>
+                            </div>
+                            <div class="f-metric">
+                                <span class="f-label">Total DiT FLOP Savings</span>
+                                <span class="f-val text-success" id="metricFlopSavings">52.6% (2.11&times;)</span>
+                                <span class="f-sub" id="metricAttnSub">Self-Attn FLOPs: -64.9%</span>
+                            </div>
+                            <div class="f-metric">
+                                <span class="f-label">Est. Peak VRAM (4090)</span>
+                                <span class="f-val" id="metricVram">21.4 GB</span>
+                                <span class="f-sub" id="metricVramSub">Selective SwiGLU Ckpt</span>
+                            </div>
+                        </div>
+
+                        <!-- Token Subsampling Canvas -->
+                        <div class="token-canvas-panel">
+                            <div class="token-canvas-header">
+                                <span>Structured 2&times;2 Token Map</span>
+                                <div class="token-legend">
+                                    <span class="dot-active"></span> Active
+                                    <span class="dot-dropped"></span> Dropped
+                                </div>
+                            </div>
+                            <canvas id="tokenGridCanvas" width="220" height="220"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 1MP Scaling Bottleneck Alert -->
+                    <div id="bottleneck1mpCard" class="bottleneck-alert hidden-alert">
+                        <div class="alert-title">
+                            &#9888; Native 1MP Bottleneck Profiling ($1024^2, N = 4096$)
+                        </div>
+                        <div class="alert-grid">
+                            <div class="alert-item">
+                                <strong>1. Online VAE Wall (72.6%):</strong> Caching 337K 1MP
+                                latents requires &gt;1.2 TB NVMe. On-the-fly encoding consumes
+                                <strong>72.6%</strong> of step time on A40 (3.66% sys MFU) and
+                                <strong>62.0%</strong> on RTX 4090 ($B=8$).
+                            </div>
+                            <div class="alert-item">
+                                <strong>2. Receptive-Field Starvation:</strong> Two dense layers
+                                ($L_{\text{enc}}=2$) span 12.5% of the canvas at $256^2$ but only
+                                <strong>3.1%</strong> at $1024^2$. Dropping 75% (3,072 tokens)
+                                creates a 32px stride that fractures multi-character anatomy until
+                                dense Phase 3B recovery (53h).
+                            </div>
+                            <div class="alert-item">
+                                <strong>3. Mitigation Recipe:</strong> 1MP sparsification requires
+                                a density curriculum (starting at $r=0.50$ or $L_{\text{enc}} \ge 4$),
+                                native $\ge 1024\text{px}$ filtering, or bypassing the VAE via
+                                latent-to-pixel adaptation.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1.2 SPRINT-Accelerated Latent-to-Pixel Adaptation -->
+                <div class="frontier-container" style="margin-top: 20px;">
+                    <div class="frontier-header">
+                        <h4>1.2 SPRINT-Accelerated Latent-to-Pixel Adaptation (DiP)</h4>
+                        <span class="frontier-badge" style="background: #047857;">
+                            Completed &bull; 57.65h ($19.04)
+                        </span>
+                    </div>
+                    <p class="section-desc">
+                        Transferring the converged 512px foundation model directly to raw RGB
+                        pixels using a <strong>10.09M Patch Detailer Head (PDH)</strong> under
+                        native velocity regression ($v$-prediction), permanently bypassing VAE
+                        decoding during few-step inference ($N \le 8$) and RL rollouts:
+                    </p>
+
+                    <div class="dip-schematic">
+                        <svg viewBox="0 0 740 175" width="100%" height="175">
+                            <defs>
+                                <marker id="arrow-dip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6"
+                                    markerHeight="6" orient="auto-start-reverse">
+                                    <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
+                                </marker>
+                            </defs>
+
+                            <!-- Pixel Input -->
+                            <rect x="10" y="25" width="90" height="42" rx="4" fill="#1e293b" stroke="#38bdf8"
+                                stroke-width="2" />
+                            <text x="55" y="43" fill="#f8fafc" font-size="10" text-anchor="middle">Noisy RGB
+                                Patch</text>
+                            <text x="55" y="58" fill="#94a3b8" font-size="8.5" text-anchor="middle">p_i
+                                (16&times;16&times;3)</text>
+
+                            <line x1="100" y1="46" x2="133" y2="46" stroke="#64748b" stroke-width="2"
+                                marker-end="url(#arrow-dip)" />
+
+                            <!-- DiT Shallow -->
+                            <rect x="135" y="16" width="95" height="60" rx="4" fill="#0f172a" stroke="#10b981"
+                                stroke-width="2" />
+                            <text x="182" y="40" fill="#34d399" font-size="10" text-anchor="middle" font-weight="bold">
+                                Shallow Path
+                            </text>
+                            <text x="182" y="56" fill="#94a3b8" font-size="8.5" text-anchor="middle">2&times; Dense
+                                Blocks</text>
+
+                            <!-- SPRINT Token Drop -->
+                            <line x1="230" y1="46" x2="278" y2="46" stroke="#ef4444" stroke-width="2" />
+                            <rect x="237" y="34" width="34" height="24" rx="3" fill="#450a0a" stroke="#ef4444" />
+                            <text x="254" y="50" fill="#fca5a5" font-size="9" text-anchor="middle">-75%</text>
+
+                            <!-- DiT Deep Middle -->
+                            <rect x="280" y="16" width="130" height="60" rx="4" fill="#0f172a" stroke="#ef4444"
+                                stroke-width="2" />
+                            <text x="345" y="38" fill="#f87171" font-size="10" text-anchor="middle" font-weight="bold">
+                                Deep Middle Path
+                            </text>
+                            <text x="345" y="53" fill="#94a3b8" font-size="8.5" text-anchor="middle">9&times; Sparse
+                                Blocks</text>
+                            <text x="345" y="66" fill="#94a3b8" font-size="8" text-anchor="middle">(25% Token
+                                Budget)</text>
+
+                            <!-- Scatter & Fusion -->
+                            <line x1="410" y1="46" x2="443" y2="46" stroke="#64748b" stroke-width="2"
+                                marker-end="url(#arrow-dip)" />
+                            <rect x="445" y="25" width="68" height="42" rx="3" fill="#1e293b" stroke="#3b82f6" />
+                            <text x="479" y="43" fill="#60a5fa" font-size="9" text-anchor="middle">Restore [M]</text>
+                            <text x="479" y="57" fill="#94a3b8" font-size="8" text-anchor="middle">+ 2&times; Dec +
+                                Skip</text>
+
+                            <!-- Shallow Skip directly to Fusion & PDH -->
+                            <path d="M 230 66 L 250 100 L 479 100 L 479 69" fill="none" stroke="#10b981"
+                                stroke-width="2" stroke-dasharray="3" />
+                            <text x="355" y="112" fill="#34d399" font-size="8.5" text-anchor="middle">
+                                Dense Shallow Skip Path f_t
+                            </text>
+
+                            <!-- Semantic Conditioning Line -->
+                            <line x1="513" y1="46" x2="546" y2="46" stroke="#64748b" stroke-width="2"
+                                marker-end="url(#arrow-dip)" />
+
+                            <!-- Convolutional Patch Detailer Head (PDH) -->
+                            <rect x="548" y="14" width="180" height="86" rx="5" fill="#141824" stroke="#eab308"
+                                stroke-width="2" />
+                            <text x="638" y="36" fill="#facc15" font-size="10" text-anchor="middle" font-weight="bold">
+                                Patch Detailer Head (PDH)
+                            </text>
+                            <text x="638" y="52" fill="#cbd5e1" font-size="8.5" text-anchor="middle">
+                                4-Stage Conv U-Net (+10.09M Params)
+                            </text>
+                            <text x="638" y="67" fill="#94a3b8" font-size="8.5" text-anchor="middle">
+                                Conditioned on Token s_i (D=768)
+                            </text>
+                            <text x="638" y="83" fill="#4ade80" font-size="8.5" text-anchor="middle">
+                                Direct v-Prediction &rarr; RGB
+                            </text>
+
+                            <!-- Direct Patch Injection into PDH -->
+                            <path d="M 55 69 L 55 138 L 638 138 L 638 103" fill="none" stroke="#38bdf8" stroke-width="2"
+                                stroke-dasharray="3" marker-end="url(#arrow-dip)" />
+                            <text x="345" y="150" fill="#38bdf8" font-size="8.5" text-anchor="middle">
+                                Direct Noisy RGB Patch Injection p_i (Upsample + 3&times;3 Conv)
+                            </text>
+                        </svg>
+                    </div>
+
+                    <div class="dip-hypothesis-grid">
+                        <div class="dip-hyp-item">
+                            <strong>Native $v$-Pred Beats $x_0$-Pred:</strong> Direct velocity
+                            regression avoids $t \to 0$ `bfloat16` singularities and dynamic
+                            clipping blowout, achieving <strong>0.568 GenEval</strong> (vs.
+                            0.545 for $x_0$-pred) and 0.420 color attribution (vs. 0.348).
+                        </div>
+                        <div class="dip-hyp-item">
+                            <strong>3-Stage Adaptation Curriculum:</strong> PDH warmup (2.25h)
+                            and SPRINT joint transfer (21.4h) use 100K synthetic anchors, then
+                            Stage 3 (34.0h) refines densely on 396K real $\ge 1024\text{px}$
+                            images (&gt;95% latent score recovery).
+                        </div>
+                        <div class="dip-hyp-item">
+                            <strong>Amortization Asymmetry:</strong> SPRINT speeds Stage 2A
+                            training by 1.30&times; (57.7 vs. 44.4 img/s). At inference, pixel
+                            mode is <strong>3.34&times; faster at $N=1$</strong> and
+                            <strong>1.44&times; at $N=4$</strong>, whereas latent+VAE wins
+                            for multi-step ODE ($N \ge 13$, $N^* \approx 12.25$).
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Core Theoretical Foundations -->
+        <section class="card" id="theory">
+            <h2>2. Theoretical Foundations: Continuous RoPE &amp; Amortization Asymmetry</h2>
+            <p class="section-desc">
+                Two core analytical results govern Asuka-FM's spatial generalization and
+                latent-to-pixel deployment regimes.
+            </p>
+
+            <!-- 2.1 Continuous RoPE Phase Collapse & Full-Spectrum Calibration -->
+            <div class="defense-subcard" style="margin-top: 10px;">
+                <h3>2.1 Continuous RoPE Phase Collapse &amp; Calibration</h3>
+                <p class="section-desc">
+                    Mapping a latent patch grid ($N_H \times N_W$) to area-preserving continuous
+                    coordinates $(y_{\text{pos}}, x_{\text{pos}}) \in [-r_H, r_H] \times [-r_W, r_W]$
+                    with $r_H = \sqrt{N_H/N_W}$ and $r_W = \sqrt{N_W/N_H}$ enables arbitrary aspect
+                    ratios without dynamic padding or <code>torch.compile</code> graph breaks.
+                    However, naive continuous coordinates break standard RoPE frequencies:
+                </p>
+
+                <div class="paradigm-grid">
+                    <div class="paradigm-card">
+                        <h4>Why Uncalibrated Continuous RoPE Collapses</h4>
+                        <div class="math-block">
+                            $$\Delta y_{\text{norm}} = \frac{2r_H}{N_H} \ll 1 \;\Longrightarrow\;
+                            K(\mathbf{p}_i, \mathbf{p}_{i+1}) = 1.0 - \mathcal{O}(N_H^{-2})$$
+                        </div>
+                        <p class="pixel-card-desc">
+                            Under standard geometric frequencies ($\omega_k = 10000^{-k/d_s} \le 1.0$),
+                            normalizing coordinates shrinks adjacent phase shifts below $7.2^\circ$.
+                            As $N_H$ grows, the cosine kernel $K(\mathbf{p}_i, \mathbf{p}_{i+1}) \to 1.0$,
+                            erasing local spatial discrimination and causing duplicated heads/torsos.
+                        </p>
+                    </div>
+
+                    <div class="paradigm-card card-highlight">
+                        <h4>Parameter-Free Full-Spectrum Calibration</h4>
+                        <div class="math-block">
+                            $$\omega_k = \exp\!\left(\ln(f_{\max}) - \frac{k}{d_s -
+                            1}\ln\!\left(\frac{f_{\max}}{f_{\min}}\right)\right),
+                            \quad f_{\max} = 2\pi,\; f_{\min} = \frac{\pi}{4}$$
+                        </div>
+                        <p class="pixel-card-desc">
+                            Bounding $f_{\max} = 2\pi$ enforces $45^\circ$ adjacent dispersion at $256^2$
+                            without Nyquist aliasing, while $f_{\min} = \pi/4$ prevents half-cycle
+                            periodic resonance across $\Delta p_{\max} = 2.0$. Registered as a static
+                            buffer (zero learnable parameters or optimizer overhead).
+                        </p>
+                    </div>
+                </div>
+
+                <div class="math-block" style="margin-top: 8px;">
+                    <strong>Zero-Shot Virtual Camera Inversion:</strong>
+                    $$y'_{\text{pos}} = \frac{y_{\text{pos}}}{\text{zoom}} + (y_{\text{shift}} \cdot 2r_H),
+                    \qquad x'_{\text{pos}} = \frac{x_{\text{pos}}}{\text{zoom}} + (x_{\text{shift}} \cdot 2r_W)$$
+                </div>
+                <details class="proof-collapse">
+                    <summary>Show Taylor Expansion Proof of Phase Collapse</summary>
+                    <div class="proof-body">
+                        For $d_s = d_h / 4$ rotation channels per axis, the normalized 2D axial RoPE
+                        kernel between patches $\mathbf{p}_i$ and $\mathbf{p}_j$ is:
+                        $$K(\mathbf{p}_i, \mathbf{p}_j) = \sum_{k=0}^{d_s-1}
+                        \frac{\cos\big((y_i - y_j)\omega_k\big) + \cos\big((x_i - x_j)\omega_k\big)}{2d_s}$$
+                        For a diagonal step $\Delta x_{\text{norm}} = \Delta y_{\text{norm}} = 2r_H/N_H$
+                        with $\omega_k \le 1.0$, adjacent phase shifts satisfy $\Delta\theta_k \le 2r_H/N_H \ll 1.0$.
+                        Expanding $\cos(\Delta\theta_k) = 1 - \frac{1}{2}(\Delta\theta_k)^2 + \mathcal{O}(N_H^{-4})$
+                        and summing over $d_s$ channels yields:
+                        $$K(\mathbf{p}_i, \mathbf{p}_{i+1}) = 1 - \frac{1}{2d_s}\sum_{k=0}^{d_s-1} (\Delta\theta_k)^2
+                        + \mathcal{O}(N_H^{-4}) = 1.0 - \mathcal{O}(N_H^{-2}) \xrightarrow{N_H \to \infty} 1.0.$$
+                    </div>
+                </details>
+            </div>
+
+            <!-- 2.2 VAE vs. Pixel Sampling: The Amortization Asymmetry -->
+            <div class="defense-subcard">
+                <h3>2.2 Latent vs. Pixel Sampling: The Amortization Asymmetry</h3>
+                <p class="section-desc">
+                    Removing the VAE decoder does <em>not</em> universally speed up inference.
+                    While latent diffusion pays a one-time $O(1)$ terminal VAE decode penalty ($t_{\text{fixed, VAE}}$),
+                    pixel diffusion must evaluate the 10.09M convolutional PDH head <em>recurrently at every ODE
+                        step</em>
+                    (adding $\Delta t_{\text{head}}$ per step, twice per step under CFG):
+                </p>
+
+                <div class="math-block">
+                    $$T_{\text{latent}}(N) = N \cdot t_{\text{step, latent}} + t_{\text{fixed, VAE}},
+                    \qquad
+                    T_{\text{pixel}}(N) = N \cdot (t_{\text{step, latent}} + \Delta t_{\text{head}}) + t_{\text{fixed,
+                    pixel}}$$
+                    $$N^* = \frac{t_{\text{fixed, VAE}} - t_{\text{fixed, pixel}}}{t_{\text{step, pixel}} -
+                    t_{\text{step, latent}}}
+                    \;\xrightarrow{\text{1MP, } B=16}\;
+                    N^* = \frac{4.82\,\text{s} - 0.09\,\text{s}}{1.773\,\text{s} - 1.387\,\text{s}} \approx
+                    \mathbf{12.25\text{ steps}}$$
+                </div>
+
+                <!-- Interactive N-Step Amortization Explorer -->
+                <div class="bottleneck-calculator">
+                    <div class="amort-header-row">
+                        <div class="btn-group" id="amortResGroup">
+                            <button class="btn-pill active-pill" id="btnAmort1024">
+                                1024&times;1024 (1MP, N* &approx; 12.25)
+                            </button>
+                            <button class="btn-pill" id="btnAmort512">
+                                512&times;512 (N* &approx; 5.95)
+                            </button>
+                        </div>
+                        <span class="telemetry-badge" id="amortEnvBadge">
+                            NVIDIA A40 &bull; Batch B=16 &bull; TorchInductor
+                        </span>
+                    </div>
+
+                    <div class="calc-controls" style="margin-top: 10px;">
+                        <label>
+                            ODE Sampling Steps ($N$ NFE):
+                            <strong id="amortStepsVal">4</strong> steps
+                            <input type="range" id="amortStepsSlider" min="1" max="30" step="1" value="4">
+                        </label>
+                    </div>
+
+                    <div class="calc-results">
+                        <div class="calc-metric">
+                            <span class="metric-title">Latent DiT + VAE Decode</span>
+                            <span class="metric-val" id="amortLatentTime">10.37 s</span>
+                            <span class="metric-sub" id="amortLatentBreakdown">
+                                4 &times; 1.387s + 4.82s VAE
+                            </span>
+                        </div>
+                        <div class="calc-metric">
+                            <span class="metric-title">Pixel DiP (Zero VAE)</span>
+                            <span class="metric-val" id="amortPixelTime">7.18 s</span>
+                            <span class="metric-sub" id="amortPixelBreakdown">
+                                4 &times; 1.773s + 0.09s fixed
+                            </span>
+                        </div>
+                        <div class="calc-metric">
+                            <span class="metric-title">Operational Winner</span>
+                            <span class="metric-val text-success" id="amortWinnerVal">Pixel 1.44&times; Faster</span>
+                            <span class="metric-sub" id="amortCrossoverSub">
+                                Few-step regime (N &lt; 12.25)
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="amort-bars">
+                        <div class="amort-bar-row">
+                            <span class="amort-bar-label">Latent + VAE</span>
+                            <div class="amort-bar-track">
+                                <div class="amort-bar-fill bar-latent" id="amortBarLatent" style="width: 65%;"></div>
+                            </div>
+                        </div>
+                        <div class="amort-bar-row">
+                            <span class="amort-bar-label">Pixel DiP</span>
+                            <div class="amort-bar-track">
+                                <div class="amort-bar-fill bar-pixel" id="amortBarPixel" style="width: 45%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="pixel-card-desc" style="margin-top: 10px;">
+                    <strong>Key Takeaway:</strong> Pixel diffusion ($P=16$) is decisively faster in
+                    <strong>few-step / distilled regimes</strong> ($3.34\times$ at $N=1$, $1.44\times$ at
+                    $N=4$ at 1MP), whereas latent sampling wins for <strong>multi-step ODE trajectories</strong>
+                    ($N \ge 13$ at 1MP, $N \ge 6$ at $512^2$, where pixel is $9\%$–$31\%$ slower)—unless
+                    patch size is widened to $P=32$ ($1.78\times$ sampling speedup at $512^2$).
+                </p>
+            </div>
+        </section>
+
+        <!-- 3. Empirical Benchmarks -->
+        <section class="card" id="benchmarks">
+            <h2>3. Empirical Validation &amp; Benchmark Analysis</h2>
+            <p class="section-desc">
+                Quantitative evaluations, consumer vs datacenter hardware profiling,
+                pretraining timings, and latent-to-pixel transfer benchmarks across
+                <code>asuka-fm</code> (625K open corpus &amp; 337K Danbooru) and
+                <code>toy-diffusion</code>:
+            </p>
+
+            <!-- Tab Switcher -->
+            <div class="bench-tabs-row" id="benchmarkTabs" role="tablist">
+                <button class="btn btn-secondary active-preset" data-bench-tab="benchTabEval" role="tab"
+                    aria-selected="true">
+                    GenEval, DPG &amp; Cost Frontier
+                </button>
+                <button class="btn btn-secondary" data-bench-tab="benchTabTiming" role="tab" aria-selected="false">
+                    Pretraining Timings &amp; 4090 vs. A40 Profiling
+                </button>
+                <button class="btn btn-secondary" data-bench-tab="benchTabPixel" role="tab" aria-selected="false">
+                    Pixel Adaptation ($512^2$ DiP)
+                </button>
+                <button class="btn btn-secondary" data-bench-tab="benchTabAblation" role="tab" aria-selected="false">
+                    Toy-Diffusion Ablations &amp; Visuals
+                </button>
+            </div>
+
+            <!-- ==================== TAB 1: GenEval, DPG-Bench & Cost ==================== -->
+            <div id="benchTabEval" class="bench-pane">
+                <h3>Open-Domain Compositional Benchmarks &amp; Compute Cost</h3>
+                <p class="section-desc">
+                    Evaluated strictly as an open-domain foundation model (100-step Euler ODE,
+                    $w_{\text{cfg}} = 8.0$ at $256^2$ and $6.0$ at $512^2$) with
+                    <strong>no benchmark-specific fine-tuning</strong>. Models marked <sup>&dagger;</sup>
+                    were fine-tuned on <code>BLIP3o-60K</code>, which directly aligns prompts to GenEval syntax.
+                </p>
+                <div class="summary-table-wrap">
+                    <table class="summary-benchmark-table">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Params</th>
+                                <th>Hardware Budget (Est. Cost)</th>
+                                <th>Training Data</th>
+                                <th class="num-col">GenEval &uarr;</th>
+                                <th class="num-col">DPG &uarr;</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="table-category-row">
+                                <td colspan="6">Industrial Foundation Models (Multi-Billion Parameters, Datacenter
+                                    Compute)</td>
+                            </tr>
+                            <tr>
+                                <td>SDXL Base</td>
+                                <td>2.6B</td>
+                                <td>Hundreds of A100s</td>
+                                <td>Millions (Web)</td>
+                                <td class="num-col">0.406<sup>*</sup></td>
+                                <td class="num-col">72.40<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>SD3 Medium</td>
+                                <td>2.0B</td>
+                                <td>Massive Cluster (&gt;$70k)</td>
+                                <td>Millions (Web)</td>
+                                <td class="num-col">0.620<sup>*</sup></td>
+                                <td class="num-col">84.08<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>FLUX.1 [Dev]</td>
+                                <td>12.0B</td>
+                                <td>Massive Cluster (&gt;$175k)</td>
+                                <td>Web-Scale</td>
+                                <td class="num-col">0.660<sup>*</sup></td>
+                                <td class="num-col">83.84<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>Janus-Pro-7B</td>
+                                <td>7.0B</td>
+                                <td>Large Cluster</td>
+                                <td>Multimodal Web</td>
+                                <td class="num-col">0.800<sup>*</sup></td>
+                                <td class="num-col">84.19<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>i1 (Open Foundation)</td>
+                                <td>3.0B</td>
+                                <td>TPU v5p-128 (90.6k h, &approx;$380k)</td>
+                                <td>Curated Open</td>
+                                <td class="num-col">0.840</td>
+                                <td class="num-col">86.73</td>
+                            </tr>
+
+                            <tr class="table-category-row">
+                                <td colspan="6">Accessible Academic Baselines (Sub-2B Parameters, Finetuned on
+                                    BLIP3o-60K<sup>&dagger;</sup>)</td>
+                            </tr>
+                            <tr>
+                                <td>PixNerd-XXL</td>
+                                <td>1.2B</td>
+                                <td>Multi-GPU Cluster</td>
+                                <td>Pretrain + BLIP3o<sup>&dagger;</sup></td>
+                                <td class="num-col">0.730<sup>*</sup></td>
+                                <td class="num-col">80.90<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>PixelGen-XXL</td>
+                                <td>1.1B</td>
+                                <td>8&times; H800 (1,152 h, &approx;$2,880)</td>
+                                <td>36M + BLIP3o<sup>&dagger;</sup></td>
+                                <td class="num-col">0.790<sup>*</sup></td>
+                                <td class="num-col">79.36</td>
+                            </tr>
+                            <tr>
+                                <td>DeCo-XXL</td>
+                                <td>1.1B</td>
+                                <td>Multi-GPU Cluster</td>
+                                <td>Pretrain + BLIP3o<sup>&dagger;</sup></td>
+                                <td class="num-col">0.860<sup>*</sup></td>
+                                <td class="num-col">81.40<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>Looped-DiT B/16</td>
+                                <td>0.26B</td>
+                                <td>8&times; H100 (576 h, &approx;$2,016)</td>
+                                <td>CC12M + BLIP3o<sup>&dagger;</sup></td>
+                                <td class="num-col">0.874<sup>*</sup></td>
+                                <td class="num-col">87.00<sup>*</sup></td>
+                            </tr>
+                            <tr>
+                                <td>MiniT2I-L/16</td>
+                                <td>0.91B</td>
+                                <td>8&times; H100 (27 Days)</td>
+                                <td>CC12M + BLIP3o<sup>&dagger;</sup></td>
+                                <td class="num-col">0.883<sup>*</sup></td>
+                                <td class="num-col">84.80<sup>*</sup></td>
+                            </tr>
+
+                            <tr class="table-category-row highlighted-category">
+                                <td colspan="6">Asuka-FM (Ours: 1&times; Consumer RTX 4090, 625K Open Curated Corpus, No
+                                    BLIP3o Finetuning)</td>
+                            </tr>
+                            <tr>
+                                <td>Asuka-256 (Dense Final)</td>
+                                <td>0.21B</td>
+                                <td>1&times; RTX 4090 (68.0h, $22.44)</td>
+                                <td>625K Open</td>
+                                <td class="num-col">0.588</td>
+                                <td class="num-col"><strong>78.96</strong></td>
+                            </tr>
+                            <tr class="row-danger">
+                                <td>Asuka-512 (75% Sparse, Ph. 2A)</td>
+                                <td>0.21B</td>
+                                <td>1&times; RTX 4090 (40.0h, $13.20)</td>
+                                <td>625K Open</td>
+                                <td class="num-col">0.480</td>
+                                <td class="num-col">68.40</td>
+                            </tr>
+                            <tr>
+                                <td>Asuka-512 (Dense FT 20k Steps)</td>
+                                <td>0.21B</td>
+                                <td>1&times; RTX 4090 (60.0h)</td>
+                                <td>625K Open</td>
+                                <td class="num-col">0.575</td>
+                                <td class="num-col"><strong>79.49</strong></td>
+                            </tr>
+                            <tr class="highlight-asuka-row">
+                                <td><strong>Asuka-512 (Dense Final, Ep 139)</strong></td>
+                                <td><strong>0.21B</strong></td>
+                                <td><strong>1&times; RTX 4090 (81.0h, $26.73)</strong></td>
+                                <td><strong>625K Open</strong></td>
+                                <td class="num-col"><strong>0.609</strong></td>
+                                <td class="num-col"><strong>78.51</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="img-caption">
+                    <sup>*</sup>Prior literature numbers.
+                    Total latent pretraining compute is <strong>149.0h ($49.17)</strong> DiT-only (0.0657 ZFLOPs), or
+                    <strong>161.2h ($53.20)</strong> including one-time offline VAE encoding.
+                </p>
+
+                <div class="bench-callout-grid">
+                    <div class="bench-callout">
+                        <strong>Order-of-Magnitude Cost Reduction:</strong> Asuka-FM trains from scratch for
+                        <strong class="no-math">$49.17–$53.20</strong> on one consumer GPU vs.
+                        <strong class="no-math">$2,016–$2,880</strong> for 8&times; H100/H800 baselines and
+                        <strong class="no-math">$70k–$380k</strong> for industrial clusters, while outperforming
+                        SDXL on both GenEval (0.609 vs. 0.406) and DPG-Bench (78.51 vs. 72.40).
+                    </div>
+                    <div class="bench-callout">
+                        <strong>Sparse Layout vs. Dense Attribute Binding:</strong> In Phase 2A (75% token drop),
+                        Single-Object remains strong (<strong>0.963</strong>) while Color-Attribution collapses
+                        (<strong>0.163</strong>). Switching to full-sequence dense refinement (Phase 2B) surges
+                        DPG-Bench to <strong>79.49</strong> at 20k steps and lifts Color-Attr to <strong>0.450</strong>
+                        and Two-Object to <strong>0.811</strong> by Epoch 139.
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 2: Pretraining Timings & Hardware Profiling ==================== -->
+            <div id="benchTabTiming" class="bench-pane hidden-pane">
+                <h3>Multi-Stage Pretraining Progression (625K Open Corpus)</h3>
+                <p class="section-desc">
+                    Measured on a single consumer <strong>NVIDIA RTX 4090 (24 GB, $0.33/hr)</strong>
+                    with <code>bfloat16</code>, FlashAttention-2, static <code>torch.compile</code>,
+                    8-bit AdamW, and effective batch size 256 (Tables 2 &amp; 8; sequence lengths include 227 text + 1
+                    time token):
+                </p>
+                <div class="summary-table-wrap">
+                    <table class="summary-benchmark-table">
+                        <thead>
+                            <tr>
+                                <th>Stage / Phase</th>
+                                <th>Res.</th>
+                                <th class="num-col">Drop ($r$)</th>
+                                <th class="num-col">Epochs</th>
+                                <th class="num-col">Samples</th>
+                                <th class="num-col">Throughput</th>
+                                <th class="num-col">Token Rate</th>
+                                <th class="num-col">MFU (Theo / Act)</th>
+                                <th class="num-col">EFLOPs</th>
+                                <th class="num-col">Time</th>
+                                <th class="num-col">Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="table-category-row">
+                                <td colspan="11">Stage 1: Base Semantic Pretraining (256 &times; 256, Latent Patch Grid
+                                    16 &times; 16 = 256 Image Tokens)</td>
+                            </tr>
+                            <tr>
+                                <td>Offline VAE Encoding<sup>&ddagger;</sup></td>
+                                <td>$256^2$</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">0.625M</td>
+                                <td class="num-col">45.2 img/s</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">3.8 h</td>
+                                <td class="num-col">$1.27</td>
+                            </tr>
+                            <tr>
+                                <td>1A: SPRINT Sparse</td>
+                                <td>$256^2$</td>
+                                <td class="num-col">0.75</td>
+                                <td class="num-col">75</td>
+                                <td class="num-col">46.88M</td>
+                                <td class="num-col">282.6 img/s</td>
+                                <td class="num-col">99.2k tok/s</td>
+                                <td class="num-col">74.4% / 86.8%</td>
+                                <td class="num-col">23.74</td>
+                                <td class="num-col">47.0 h</td>
+                                <td class="num-col">$15.51</td>
+                            </tr>
+                            <tr>
+                                <td>1B: Dense Refine (+1C WSD)</td>
+                                <td>$256^2$</td>
+                                <td class="num-col">0.00</td>
+                                <td class="num-col">20</td>
+                                <td class="num-col">12.50M</td>
+                                <td class="num-col">172.5 img/s</td>
+                                <td class="num-col">83.5k tok/s</td>
+                                <td class="num-col">62.9% / 73.4%</td>
+                                <td class="num-col">8.73</td>
+                                <td class="num-col">21.0 h</td>
+                                <td class="num-col">$6.93</td>
+                            </tr>
+                            <tr class="table-category-row">
+                                <td colspan="11">Stage 2: High-Resolution Adaptation (512 &times; 512, Latent Patch
+                                    Grid 32 &times; 32 = 1,024 Image Tokens)</td>
+                            </tr>
+                            <tr>
+                                <td>Offline VAE Encoding<sup>&ddagger;</sup></td>
+                                <td>$512^2$</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">0.625M</td>
+                                <td class="num-col">20.6 img/s</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">8.4 h</td>
+                                <td class="num-col">$2.78</td>
+                            </tr>
+                            <tr>
+                                <td>2A: High-Res Sparse</td>
+                                <td>$512^2$</td>
+                                <td class="num-col">0.75</td>
+                                <td class="num-col">25</td>
+                                <td class="num-col">15.63M</td>
+                                <td class="num-col">108.5 img/s</td>
+                                <td class="num-col">78.1k tok/s</td>
+                                <td class="num-col">58.5% / 68.3%</td>
+                                <td class="num-col">16.24</td>
+                                <td class="num-col">40.0 h</td>
+                                <td class="num-col">$13.20</td>
+                            </tr>
+                            <tr>
+                                <td>2B: Dense Refine (+2C WSD)</td>
+                                <td>$512^2$</td>
+                                <td class="num-col">0.00</td>
+                                <td class="num-col">15</td>
+                                <td class="num-col">9.38M</td>
+                                <td class="num-col">64.8 img/s</td>
+                                <td class="num-col">81.1k tok/s</td>
+                                <td class="num-col">61.0% / 71.2%</td>
+                                <td class="num-col">16.94</td>
+                                <td class="num-col">41.0 h</td>
+                                <td class="num-col">$13.53</td>
+                            </tr>
+                            <tr class="table-category-row highlighted-category">
+                                <td colspan="11">Cumulative Totals</td>
+                            </tr>
+                            <tr>
+                                <td><strong>DiT Training Total (Stages 1 + 2)</strong></td>
+                                <td>&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col"><strong>135</strong></td>
+                                <td class="num-col"><strong>84.38M</strong></td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col"><strong>64.8% / 75.6%</strong></td>
+                                <td class="num-col"><strong>65.65</strong></td>
+                                <td class="num-col"><strong>149.0 h</strong></td>
+                                <td class="num-col"><strong>$49.17</strong></td>
+                            </tr>
+                            <tr class="highlight-asuka-row">
+                                <td><strong>Grand Total (Inc. Offline VAE)</strong></td>
+                                <td>&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col"><strong>65.65</strong></td>
+                                <td class="num-col"><strong>161.2 h</strong></td>
+                                <td class="num-col"><strong>$53.20</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 22px;">Consumer RTX 4090 vs. Datacenter NVIDIA A40 &amp; Online VAE Wall</h3>
+                <p class="section-desc">
+                    Despite half the VRAM (24 GB vs. 48 GB), the RTX 4090 executes compiled latent steps
+                    <strong>1.97&times; faster</strong> than the A40 because its <strong>12&times; larger L2 cache</strong>
+                    (72 MB vs. 6 MB) keeps TorchInductor Triton kernels on-chip and avoids GDDR6 fallback (1,008 vs. 696
+                    GB/s).
+                    Conversely, on-the-fly FLUX.2 VAE encoding at high resolutions starves the GPU:
+                </p>
+
+                <div class="summary-table-wrap">
+                    <table class="summary-benchmark-table">
+                        <thead>
+                            <tr>
+                                <th>Workload / Device</th>
+                                <th>Res. (BS)</th>
+                                <th class="num-col">Peak VRAM</th>
+                                <th class="num-col">Online VAE</th>
+                                <th class="num-col">Text Enc.</th>
+                                <th class="num-col">Backbone (F+B)</th>
+                                <th class="num-col">Opt. &amp; Clip</th>
+                                <th class="num-col">Total Step</th>
+                                <th class="num-col">Sys. MFU</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>NVIDIA A40 (In-RAM Latents)</td>
+                                <td>$256^2$ (BS 64)</td>
+                                <td class="num-col">13.25 GB</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">99.98 ms</td>
+                                <td class="num-col">469.88 ms</td>
+                                <td class="num-col">36.33 ms</td>
+                                <td class="num-col">607.65 ms</td>
+                                <td class="num-col">31.71%</td>
+                            </tr>
+                            <tr class="highlight-asuka-row">
+                                <td><strong>RTX 4090 (In-RAM Latents)</strong></td>
+                                <td><strong>$256^2$ (BS 64)</strong></td>
+                                <td class="num-col"><strong>15.25 GB</strong></td>
+                                <td class="num-col"><strong>0.28 ms</strong></td>
+                                <td class="num-col"><strong>38.94 ms</strong></td>
+                                <td class="num-col"><strong>247.91 ms</strong></td>
+                                <td class="num-col"><strong>20.87 ms</strong></td>
+                                <td class="num-col"><strong>308.27 ms</strong></td>
+                                <td class="num-col"><strong>63.25%</strong></td>
+                            </tr>
+                            <tr>
+                                <td>NVIDIA A40 (Online VAE Wall)</td>
+                                <td>$512^2$ (BS 64)</td>
+                                <td class="num-col">35.20 GB</td>
+                                <td class="num-col"><strong class="text-danger">2.264 s (59.4%)</strong></td>
+                                <td class="num-col">111.34 ms</td>
+                                <td class="num-col">1,396.95 ms</td>
+                                <td class="num-col">36.28 ms</td>
+                                <td class="num-col">3,808.42 ms</td>
+                                <td class="num-col">15.27%</td>
+                            </tr>
+                            <tr class="row-danger">
+                                <td>NVIDIA A40 (1MP Online VAE)</td>
+                                <td>$1024^2$ (BS 16)</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col"><strong class="text-danger">2.548 s (72.6%)</strong></td>
+                                <td class="num-col">31.84 ms</td>
+                                <td class="num-col">888.96 ms (25.3%)</td>
+                                <td class="num-col">38.49 ms</td>
+                                <td class="num-col">3,507.55 ms</td>
+                                <td class="num-col"><strong class="text-danger">3.66%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Stacked Execution Time Breakdown -->
+                <div class="exec-share-chart">
+                    <div class="exec-chart-header">
+                        <strong>Step Latency Share Across Resolutions</strong>
+                        <div class="exec-legend">
+                            <span><i class="leg-dot seg-vae"></i> Frozen VAE</span>
+                            <span><i class="leg-dot seg-dit-fwd"></i> DiT Fwd</span>
+                            <span><i class="leg-dot seg-dit-bwd"></i> DiT Bwd</span>
+                            <span><i class="leg-dot seg-text"></i> Text Enc.</span>
+                            <span><i class="leg-dot seg-opt"></i> Opt/IO</span>
+                        </div>
+                    </div>
+                    <div class="share-bar-row">
+                        <span class="share-label">256&sup2; In-RAM (4090)</span>
+                        <div class="share-bar-track">
+                            <div class="share-seg seg-dit-fwd" style="width: 80.4%;" title="DiT Backbone (F+B): 80.4%">
+                            </div>
+                            <div class="share-seg seg-text" style="width: 12.6%;" title="Text Enc: 12.6%"></div>
+                            <div class="share-seg seg-opt" style="width: 7.0%;" title="Opt/IO/Cache: 7.0%"></div>
+                        </div>
+                        <span class="share-pct"><strong>0.1%</strong> VAE</span>
+                    </div>
+                    <div class="share-bar-row">
+                        <span class="share-label">512&sup2; Online (A40)</span>
+                        <div class="share-bar-track">
+                            <div class="share-seg seg-vae" style="width: 59.4%;" title="Online Frozen VAE: 59.4%"></div>
+                            <div class="share-seg seg-dit-fwd" style="width: 36.7%;" title="DiT Backbone (F+B): 36.7%">
+                            </div>
+                            <div class="share-seg seg-text" style="width: 2.9%;" title="Text Enc: 2.9%"></div>
+                            <div class="share-seg seg-opt" style="width: 1.0%;" title="Opt/IO: 1.0%"></div>
+                        </div>
+                        <span class="share-pct text-danger"><strong>59.4%</strong> VAE</span>
+                    </div>
+                    <div class="share-bar-row">
+                        <span class="share-label">1024&sup2; Online (A40)</span>
+                        <div class="share-bar-track">
+                            <div class="share-seg seg-vae" style="width: 72.6%;" title="Online Frozen VAE: 72.6%"></div>
+                            <div class="share-seg seg-dit-fwd" style="width: 6.5%;" title="DiT Fwd: 6.5%"></div>
+                            <div class="share-seg seg-dit-bwd" style="width: 18.8%;" title="DiT Bwd: 18.8%"></div>
+                            <div class="share-seg seg-text" style="width: 0.9%;" title="Text Enc: 0.9%"></div>
+                            <div class="share-seg seg-opt" style="width: 1.1%;" title="Opt/IO: 1.1%"></div>
+                        </div>
+                        <span class="share-pct text-danger"><strong>72.6%</strong> VAE</span>
+                    </div>
+                </div>
+
+                <details class="proof-collapse">
+                    <summary>Curated Danbooru 337K Multi-Stage Timings (256&sup2; &rarr; 512&sup2;
+                        &rarr; 1024&sup2;)</summary>
+                    <div class="proof-body">
+                        <p class="pixel-card-desc" style="margin-bottom: 8px;">
+                            On the 337K Danbooru testbed (effective batch size 256 for Stages 1–2, 128 for Stage 3;
+                            152 text + 1 time = 153 tokens), Stages 1 + 2 ($256^2 \to 512^2$) complete in
+                            <strong>110.0h ($36.30)</strong>, and native $1024^2$ scaling adds
+                            <strong>89.0h ($29.37)</strong> for <strong>199.0h ($65.67)</strong> total:
+                        </p>
+                        <div class="summary-table-wrap">
+                            <table class="summary-benchmark-table">
+                                <thead>
+                                    <tr>
+                                        <th>Stage / Phase</th>
+                                        <th>Res.</th>
+                                        <th class="num-col">Drop ($r$)</th>
+                                        <th class="num-col">Epochs</th>
+                                        <th class="num-col">Samples</th>
+                                        <th class="num-col">Throughput</th>
+                                        <th class="num-col">MFU (Theo / Act)</th>
+                                        <th class="num-col">EFLOPs</th>
+                                        <th class="num-col">Time</th>
+                                        <th class="num-col">Cost</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="table-category-row">
+                                        <td colspan="10">Stage 1: Base Semantic Pretraining (256 &times; 256, 256 Image
+                                            Tokens)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>1A: SPRINT Sparse</td>
+                                        <td>$256^2$</td>
+                                        <td class="num-col">0.75</td>
+                                        <td class="num-col">100</td>
+                                        <td class="num-col">33.70M</td>
+                                        <td class="num-col">334.3 img/s</td>
+                                        <td class="num-col">69.1% / 80.6%</td>
+                                        <td class="num-col">13.42</td>
+                                        <td class="num-col">28.0 h</td>
+                                        <td class="num-col">$9.24</td>
+                                    </tr>
+                                    <tr>
+                                        <td>1B: Dense Refine</td>
+                                        <td>$256^2$</td>
+                                        <td class="num-col">0.00</td>
+                                        <td class="num-col">50</td>
+                                        <td class="num-col">16.85M</td>
+                                        <td class="num-col">234.0 img/s</td>
+                                        <td class="num-col">71.7% / 83.6%</td>
+                                        <td class="num-col">9.94</td>
+                                        <td class="num-col">20.0 h</td>
+                                        <td class="num-col">$6.60</td>
+                                    </tr>
+                                    <tr>
+                                        <td>1C: WSD Cooldown</td>
+                                        <td>$256^2$</td>
+                                        <td class="num-col">0.00</td>
+                                        <td class="num-col">25</td>
+                                        <td class="num-col">8.43M</td>
+                                        <td class="num-col">234.0 img/s</td>
+                                        <td class="num-col">71.7% / 83.6%</td>
+                                        <td class="num-col">4.97</td>
+                                        <td class="num-col">10.0 h</td>
+                                        <td class="num-col">$3.30</td>
+                                    </tr>
+                                    <tr class="table-category-row">
+                                        <td colspan="10">Stage 2: High-Resolution Adaptation (512 &times; 512, 1,024
+                                            Image Tokens)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>2A: High-Res Sparse</td>
+                                        <td>$512^2$</td>
+                                        <td class="num-col">0.75</td>
+                                        <td class="num-col">25</td>
+                                        <td class="num-col">8.43M</td>
+                                        <td class="num-col">70.9 img/s</td>
+                                        <td class="num-col">34.3% / 40.0%</td>
+                                        <td class="num-col">7.84</td>
+                                        <td class="num-col">33.0 h</td>
+                                        <td class="num-col">$10.89</td>
+                                    </tr>
+                                    <tr>
+                                        <td>2B: Dense Finetune</td>
+                                        <td>$512^2$</td>
+                                        <td class="num-col">0.00</td>
+                                        <td class="num-col">10</td>
+                                        <td class="num-col">3.37M</td>
+                                        <td class="num-col">72.0 img/s</td>
+                                        <td class="num-col">63.4% / 74.0%</td>
+                                        <td class="num-col">5.72</td>
+                                        <td class="num-col">13.0 h</td>
+                                        <td class="num-col">$4.29</td>
+                                    </tr>
+                                    <tr>
+                                        <td>2C: WSD Cooldown</td>
+                                        <td>$512^2$</td>
+                                        <td class="num-col">0.00</td>
+                                        <td class="num-col">5</td>
+                                        <td class="num-col">1.69M</td>
+                                        <td class="num-col">78.0 img/s</td>
+                                        <td class="num-col">68.7% / 80.2%</td>
+                                        <td class="num-col">2.86</td>
+                                        <td class="num-col">6.0 h</td>
+                                        <td class="num-col">$1.98</td>
+                                    </tr>
+                                    <tr class="table-category-row">
+                                        <td colspan="10">Stage 3: Native Megapixel Scaling (1024 &times; 1024, 4,096 Image
+                                            Tokens)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>3A: SPRINT Sparse</td>
+                                        <td>$1024^2$</td>
+                                        <td class="num-col">0.75</td>
+                                        <td class="num-col">3</td>
+                                        <td class="num-col">1.01M</td>
+                                        <td class="num-col">7.80 img/s</td>
+                                        <td class="num-col">12.4% / 14.5%</td>
+                                        <td class="num-col">3.10</td>
+                                        <td class="num-col">36.0 h</td>
+                                        <td class="num-col">$11.88</td>
+                                    </tr>
+                                    <tr>
+                                        <td>3B: Dense Finetune</td>
+                                        <td>$1024^2$</td>
+                                        <td class="num-col">0.00</td>
+                                        <td class="num-col">4</td>
+                                        <td class="num-col">1.35M</td>
+                                        <td class="num-col">7.07 img/s</td>
+                                        <td class="num-col">22.5% / 26.2%</td>
+                                        <td class="num-col">8.26</td>
+                                        <td class="num-col">53.0 h</td>
+                                        <td class="num-col">$17.49</td>
+                                    </tr>
+                                    <tr class="table-category-row highlighted-category">
+                                        <td colspan="10">Cumulative Totals</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Cumulative 512&sup2; Subtotal (1 + 2)</strong></td>
+                                        <td>&ndash;</td>
+                                        <td class="num-col">&ndash;</td>
+                                        <td class="num-col"><strong>215</strong></td>
+                                        <td class="num-col"><strong>72.46M</strong></td>
+                                        <td class="num-col">&ndash;</td>
+                                        <td class="num-col"><strong>58.7% / 68.4%</strong></td>
+                                        <td class="num-col"><strong>44.77</strong></td>
+                                        <td class="num-col"><strong>110.0 h</strong></td>
+                                        <td class="num-col"><strong>$36.30</strong></td>
+                                    </tr>
+                                    <tr class="highlight-asuka-row">
+                                        <td><strong>Cumulative Grand Total (1 + 2 + 3)</strong></td>
+                                        <td>&ndash;</td>
+                                        <td class="num-col">&ndash;</td>
+                                        <td class="num-col"><strong>222</strong></td>
+                                        <td class="num-col"><strong>74.81M</strong></td>
+                                        <td class="num-col">&ndash;</td>
+                                        <td class="num-col"><strong>40.6% / 47.4%</strong></td>
+                                        <td class="num-col"><strong>56.13</strong></td>
+                                        <td class="num-col"><strong>199.0 h</strong></td>
+                                        <td class="num-col"><strong>$65.67</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <!-- ==================== TAB 3: Latent-to-Pixel DiP Adaptation ==================== -->
+            <div id="benchTabPixel" class="bench-pane hidden-pane">
+                <h3>Latent-to-Pixel Adaptation at $512^2$</h3>
+                <p class="section-desc">
+                    Adapting the converged <code>Asuka-512</code> latent backbone to raw RGB pixels using the
+                    <strong>10.09M Patch Detailer Head (PDH)</strong> (effective batch size 128 on RTX 4090).
+                    All benchmarks evaluated at $512^2$ (100-step Euler ODE, $w_{\text{cfg}}=6.0$); per-image
+                    sampling latency profiled on NVIDIA A40 at batch size 32:
+                </p>
+
+                <div class="summary-table-wrap">
+                    <table class="summary-benchmark-table">
+                        <thead>
+                            <tr>
+                                <th>Configuration / Stage</th>
+                                <th class="num-col">Patch ($P$)</th>
+                                <th>Obj.</th>
+                                <th>Schedule &amp; Compute (4090)</th>
+                                <th class="num-col">Img/s (MFU<sub>act</sub>)</th>
+                                <th class="num-col">Colors</th>
+                                <th class="num-col">Color-Attr</th>
+                                <th class="num-col">GenEval &uarr;</th>
+                                <th class="num-col">DPG &uarr;</th>
+                                <th class="num-col">Latency (20s / 30s)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Asuka-512 (Base Latent)</strong></td>
+                                <td class="num-col">16</td>
+                                <td>$v$-pred</td>
+                                <td>139 Ep (81.0h, $26.73)</td>
+                                <td class="num-col">64.8 (71.2%)</td>
+                                <td class="num-col">0.817</td>
+                                <td class="num-col">0.450</td>
+                                <td class="num-col"><strong>0.609</strong></td>
+                                <td class="num-col"><strong>78.51</strong></td>
+                                <td class="num-col">0.250s / 0.374s</td>
+                            </tr>
+                            <tr class="table-category-row">
+                                <td colspan="10">Stage 1–2: Synthetic Anchor Transfer (100K Asuka-512 Synth Images;
+                                    Phase 0 Gen on A40: 15.0h, $6.00)</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 1: PDH Warmup (Frozen DiT)</td>
+                                <td class="num-col">16</td>
+                                <td>$v$-pred</td>
+                                <td>5 Ep, $r=0.75$ (2.25h, $0.74)</td>
+                                <td class="num-col">61.8 (72.8%)</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                                <td class="num-col">&ndash;</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2A: Joint SPRINT Sparse</td>
+                                <td class="num-col">16</td>
+                                <td>$v$-pred</td>
+                                <td>25 Ep, $r=0.75$ (12.0h, $3.98)</td>
+                                <td class="num-col">57.7 (67.8%)</td>
+                                <td class="num-col">0.662</td>
+                                <td class="num-col">0.215</td>
+                                <td class="num-col">0.465</td>
+                                <td class="num-col">69.63</td>
+                                <td class="num-col">0.329s / 0.493s</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2B: Dense Refine (Synth)</td>
+                                <td class="num-col">16</td>
+                                <td>$x_0$-pred</td>
+                                <td>15 Ep, $r=0.00$ (9.4h)</td>
+                                <td class="num-col">44.4 (&ndash;)</td>
+                                <td class="num-col">0.628</td>
+                                <td class="num-col">0.233</td>
+                                <td class="num-col">0.477</td>
+                                <td class="num-col">71.49</td>
+                                <td class="num-col">0.329s / 0.493s</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2B: Dense Refine (Synth)</td>
+                                <td class="num-col">16</td>
+                                <td>$v$-pred</td>
+                                <td>15 Ep, $r=0.00$ (9.4h, $3.10)</td>
+                                <td class="num-col">44.4 (69.8%)</td>
+                                <td class="num-col">0.726</td>
+                                <td class="num-col">0.273</td>
+                                <td class="num-col">0.505</td>
+                                <td class="num-col">72.35</td>
+                                <td class="num-col">0.329s / 0.493s</td>
+                            </tr>
+                            <tr class="table-category-row">
+                                <td colspan="10">Stage 3: Real-Data SFT Refinement (396,635 Curated Real Images
+                                    &ge;1024px from i1; Synth Discarded)</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 3 SFT ($x_0$-pred Ablation)</td>
+                                <td class="num-col">16</td>
+                                <td>$x_0$-pred</td>
+                                <td>13 Ep, 70k steps (34.0h)</td>
+                                <td class="num-col">42.1 (&ndash;)</td>
+                                <td class="num-col">0.707</td>
+                                <td class="num-col">0.348</td>
+                                <td class="num-col">0.545</td>
+                                <td class="num-col"><strong>76.32</strong></td>
+                                <td class="num-col">0.329s / 0.493s</td>
+                            </tr>
+                            <tr class="highlight-asuka-row">
+                                <td><strong>Stage 3 SFT ($v$-pred, Final Pixel DiT)</strong></td>
+                                <td class="num-col"><strong>16</strong></td>
+                                <td><strong>$v$-pred</strong></td>
+                                <td><strong>13 Ep, 70k (34.0h, $11.22)</strong></td>
+                                <td class="num-col"><strong>42.1 (66.2%)</strong></td>
+                                <td class="num-col"><strong>0.750</strong></td>
+                                <td class="num-col"><strong>0.420</strong></td>
+                                <td class="num-col"><strong>0.568</strong></td>
+                                <td class="num-col"><strong>75.31</strong></td>
+                                <td class="num-col">0.329s / 0.493s</td>
+                            </tr>
+                            <tr class="table-category-row">
+                                <td colspan="10">Progressive Token Compression (P = 16 &rarr; 32; 4&times; Sequence
+                                    Reduction to N = 256 Tokens)</td>
+                            </tr>
+                            <tr>
+                                <td>ps32-adapt16 (Large Patch Engine)</td>
+                                <td class="num-col">32</td>
+                                <td>$v$-pred</td>
+                                <td>+25 Ep (72.0h, $23.76)</td>
+                                <td class="num-col">38.3 (63.3%)</td>
+                                <td class="num-col">0.739</td>
+                                <td class="num-col">0.250</td>
+                                <td class="num-col">0.504</td>
+                                <td class="num-col">69.87</td>
+                                <td class="num-col"><strong>0.187s / 0.277s</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="bench-callout-grid">
+                    <div class="bench-callout">
+                        <strong>&gt;95% Anchor Recovery for $19.04:</strong> Stages 1–3 execute <strong>15.15
+                            EFLOPs</strong>
+                        in <strong>57.65h</strong> on a single RTX 4090 (72.65h / $25.04 including Phase 0 A40 synth
+                        generation),
+                        recovering <strong>0.568 GenEval / 75.31 DPG</strong> with zero VAE decoding.
+                    </div>
+                    <div class="bench-callout">
+                        <strong>Why Native $v$-Pred Wins:</strong> Converting $\hat{x}_0$ via $v_t = (x_t -
+                        \hat{x}_0)/t$
+                        hits a $t \to 0$ <code>bfloat16</code> singularity requiring dynamic percentile clipping that
+                        desaturates colors.
+                        Native $v$-pred avoids clipping entirely and improves GenEval (<strong>0.568 vs. 0.545</strong>)
+                        and Color-Attr (<strong>0.420 vs. 0.348</strong>).
+                    </div>
+                    <div class="bench-callout">
+                        <strong>$P = 32$ Speed-Quality Trade-Off:</strong> Widening patches to $P=32$ cuts tokens
+                        $4\times$
+                        and speeds 30-step sampling by <strong>1.78&times;</strong> (0.277s vs. 0.493s/img on A40),
+                        surpassing latent 30-step sampling (0.374s) at the cost of lower compositional binding (0.504
+                        GenEval).
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 4: Toy-Diffusion Ablations & Visuals ==================== -->
+            <div id="benchTabAblation" class="bench-pane hidden-pane">
+                <h3>Controlled <code>toy-diffusion</code> Ablations (87K Portraits @ $256^2, P=16$)</h3>
+                <p class="section-desc">
+                    Prior to foundation pretraining, architectural and conditioning choices were isolated on
+                    87,000 facial portrait crops at $256 \times 256$:
+                </p>
+
+                <div class="summary-table-wrap">
+                    <table class="summary-benchmark-table">
+                        <thead>
+                            <tr>
+                                <th>Backbone / Architecture Variant</th>
+                                <th class="num-col">Params</th>
+                                <th class="num-col">BS</th>
+                                <th class="num-col">Epochs</th>
+                                <th class="num-col">FID &darr;</th>
+                                <th>Key Finding</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="table-category-row">
+                                <td colspan="6">Part I: Latent Architecture &amp; Conditioning Ablations</td>
+                            </tr>
+                            <tr>
+                                <td>Single-Stream DiT ($D=768, L=14$)</td>
+                                <td class="num-col">218M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">600</td>
+                                <td class="num-col">3.89</td>
+                                <td>Modality interference; lower MFU (49.8% vs. 70.4%)</td>
+                            </tr>
+                            <tr>
+                                <td>Efficient U-Net Baseline</td>
+                                <td class="num-col">185M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">400</td>
+                                <td class="num-col">3.45</td>
+                                <td>Convolutional baseline</td>
+                            </tr>
+                            <tr>
+                                <td>Dual-Stream DiT + MLP Text Adapter</td>
+                                <td class="num-col">200M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">600</td>
+                                <td class="num-col">3.42</td>
+                                <td>Static projection trails 2-layer bidirectional adapter (3.12)</td>
+                            </tr>
+                            <tr>
+                                <td>Dual-Stream DiT + LLM (Frozen LFM2.5)</td>
+                                <td class="num-col">206M</td>
+                                <td class="num-col">512</td>
+                                <td class="num-col">1,000</td>
+                                <td class="num-col">3.12</td>
+                                <td>AdaLN-free + prepended time token cuts params 28%</td>
+                            </tr>
+                            <tr>
+                                <td>Dual-Stream Baseline (Constant LR / WSD)</td>
+                                <td class="num-col">206M</td>
+                                <td class="num-col">512</td>
+                                <td class="num-col">600</td>
+                                <td class="num-col">3.06</td>
+                                <td>WSD linear decay drops FID from 3.27 &rarr; 3.06</td>
+                            </tr>
+                            <tr class="highlight-asuka-row">
+                                <td><strong>Dual-Stream Baseline (Large Batch)</strong></td>
+                                <td class="num-col"><strong>206M</strong></td>
+                                <td class="num-col"><strong>1024</strong></td>
+                                <td class="num-col"><strong>1,400</strong></td>
+                                <td class="num-col"><strong>2.42</strong></td>
+                                <td><strong>Best toy-scale latent convergence</strong></td>
+                            </tr>
+                            <tr>
+                                <td>Dual-Stream Wide ($D=1024, L=10$)</td>
+                                <td class="num-col">352M</td>
+                                <td class="num-col">512</td>
+                                <td class="num-col">750</td>
+                                <td class="num-col">2.85</td>
+                                <td>Wider hidden dim with WSD cooldown (3.27 &rarr; 2.85)</td>
+                            </tr>
+                            <tr>
+                                <td>SPRINT Dual-Stream ($r=0.75$, Sparse Only)</td>
+                                <td class="num-col">206M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">700</td>
+                                <td class="num-col">5.56</td>
+                                <td>52% faster iterations; plateaus without dense FT</td>
+                            </tr>
+                            <tr>
+                                <td>SPRINT Dual-Stream ($r=0.75 \to$ Dense FT)</td>
+                                <td class="num-col">206M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">1,000</td>
+                                <td class="num-col"><strong>3.96</strong></td>
+                                <td>Dense FT recovers fidelity at &gt;50% cumulative FLOP savings</td>
+                            </tr>
+                            <tr class="table-category-row">
+                                <td colspan="6">Part II: Early Latent-to-Pixel DiP Ablations ($x_0$-Prediction on Toy
+                                    Scale; Superseded by $v$-Pred at $512^2$)</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 1: PDH Only (Frozen DiT Backbone)</td>
+                                <td class="num-col">+10M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">15</td>
+                                <td class="num-col">28.40</td>
+                                <td>Warmup aligns convolutional head; faint patch seams remain</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2: Joint FT ($P=16$, Hard Clamp)</td>
+                                <td class="num-col">216M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">50</td>
+                                <td class="num-col">19.85</td>
+                                <td>Hard $[-1, 1]$ clamp shifts RGB hue vectors</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2: Joint FT ($P=16$, Dynamic Clip)</td>
+                                <td class="num-col">216M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">20 / 50 / 85</td>
+                                <td class="num-col">18.20 / 16.00 / <strong>14.39</strong></td>
+                                <td>Dynamic percentile clipping improves $x_0$-pred stability</td>
+                            </tr>
+                            <tr>
+                                <td>Stage 2: Staged Patch Widening ($P=16 \to 32$)</td>
+                                <td class="num-col">216M</td>
+                                <td class="num-col">256</td>
+                                <td class="num-col">50</td>
+                                <td class="num-col">33.80</td>
+                                <td>4&times; token cut without NaN divergence (direct $P=32$ diverges)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Toy Diffusion Benchmark Image -->
+                <div class="image-showcase">
+                    <h3>Toy-Diffusion Convergence Curve</h3>
+                    <div class="img-frame">
+                        <img src="images/toy_diffusion_benchmarks.png" alt="Toy Diffusion Benchmarks">
+                    </div>
+                    <p class="img-caption">
+                        Evaluation of SPRINT token drop schedules ($r = 0.75 \to 0.00$) on FID.
+                        Sparse pretraining plateaus at <strong>FID 5.56</strong>, while terminal dense
+                        fine-tuning drops FID to <strong>3.96</strong> (vs. <strong>3.89</strong> Single-Stream
+                        and <strong>3.06–3.12</strong> Dual-Stream baseline) at &gt;50% FLOP savings.
+                    </p>
+                </div>
+
+                <!-- Pretraining Comparison 256px vs 512px -->
+                <div class="image-showcase">
+                    <h3>Resolution Scaling: 256px Base vs. 512px Adaptation</h3>
+                    <div class="img-frame">
+                        <img src="images/sample_256_vs_512_comparison.png" alt="256px vs 512px Generations">
+                    </div>
+                    <p class="img-caption">
+                        Zero-shot qualitative comparisons across characters (Akane,
+                        Asuka Bodysuit, Hoshino Ai, Rae &amp; Claire). 512px adaptation
+                        sharply resolves micro-textures, hair strands, and eye lineart.
+                    </p>
+                </div>
+            </div>
+        </section>
+        <!-- 4. Continuous Aspect RoPE & Virtual Camera Simulators -->
+        <section class="card" id="rope-simulators">
+            <h2>4. Continuous Aspect RoPE &amp; Virtual Camera Simulators</h2>
+            <p class="section-desc">
+                Interactive verification of Asuka-FM's parameter-free coordinate manifold:
+                (4.1) zero-shot inference camera steering, (4.2) static square crop training to
+                prevent <code>torch.compile</code> JIT graph breaks, and (4.3) full-spectrum
+                frequency calibration to cure phase collapse.
+            </p>
+
+            <!-- 4.1 Zero-Shot Virtual Camera Viewport Simulator (Inference) -->
+            <div class="defense-subcard" id="secViewportSim">
+                <h3>4.1 Zero-Shot Virtual Camera Viewport Simulator (Inference)</h3>
+                <p class="section-desc">
+                    Apply affine coordinate transformations directly to the continuous RoPE evaluation
+                    mesh at inference time without retraining or auxiliary camera tokens. Compare the
+                    transformed viewport (blue) against the canonical base frame (red dashed):
+                </p>
+
+                <div class="sim-wrapper">
+                    <div class="sim-controls">
+                        <label class="btn btn-secondary upload-btn">
+                            &#128247; Load Test Image into Viewport
+                            <input type="file" id="simImageUpload" accept="image/*" hidden>
+                        </label>
+
+                        <label>
+                            <span class="sim-label-row">
+                                Zoom (<i>z</i>): <strong id="zoomVal">1.00</strong>&times;
+                            </span>
+                            <input type="range" id="zoomInput" min="0.5" max="2.0" step="0.05" value="1.0">
+                        </label>
+                        <label>
+                            <span class="sim-label-row">
+                                Horizontal Shift (<i>x</i><sub>shift</sub>): <strong id="xShiftVal">0.00</strong>
+                            </span>
+                            <input type="range" id="xShiftInput" min="-0.5" max="0.5" step="0.05" value="0.0">
+                        </label>
+                        <label>
+                            <span class="sim-label-row">
+                                Vertical Shift (<i>y</i><sub>shift</sub>): <strong id="yShiftVal">0.00</strong>
+                            </span>
+                            <input type="range" id="yShiftInput" min="-0.5" max="0.5" step="0.05" value="0.0">
+                        </label>
+
+                        <button id="btnResetSim" class="btn btn-secondary">
+                            Reset Camera to Center
+                        </button>
+                    </div>
+
+                    <div class="sim-display-pane">
+                        <canvas id="viewportCanvas" width="340" height="340"></canvas>
+                        <div class="sim-legend">
+                            <span class="leg-item">
+                                <span class="leg-box red-dashed"></span>
+                                Canonical Base Viewport (<i>x</i>=0, <i>y</i>=0, <i>z</i>=1)
+                            </span>
+                            <span class="leg-item">
+                                <span class="leg-box blue-solid"></span>
+                                Active Transformed Viewport
+                            </span>
+                        </div>
+                        <div class="sim-telemetry-row">
+                            <span class="telemetry-badge" id="simCoordReadout">
+                                Query: [-1.00, 1.00] &times; [-1.00, 1.00]
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- 4.2 Interactive Shifted Crop & Static Shape Visualizer (Training) -->
+            <div class="defense-subcard" id="secShiftCrop">
+                <h3>4.2 Shifted Square Crop &amp; Static Tensor Visualizer</h3>
+                <p class="section-desc">
+                    Replicates Asuka-FM's shifted crop pipeline (following Patch Diffusion [12] &amp;
+                    HDM [11]): isotropically scale the shorter edge, extract a fixed static crop window
+                    (strictly $256^2$ or $512^2$ during pretraining to prevent
+                    <code>torch.compile</code> JIT recompilations), and slice the continuous
+                    aspect-normalized RoPE map:
+                </p>
+
+                <div class="crop-sim-container">
+                    <!-- Toolbar Controls -->
+                    <div class="crop-toolbar">
+                        <label class="btn btn-secondary">
+                            &#128247; Upload Source Image
+                            <input type="file" id="cropImageUpload" accept="image/*" hidden>
+                        </label>
+
+                        <button id="btnRollDice" class="btn btn-dice" title="Randomize Crop Offset">
+                            <span class="dice-icon">&#127922;</span> Random Shift Crop
+                        </button>
+
+                        <div class="crop-dim-controls">
+                            <label>
+                                Crop Width: <strong id="cropWVal">256</strong>px
+                                <input type="range" id="cropWInput" min="128" max="512" step="64" value="256">
+                            </label>
+                            <label>
+                                Crop Height: <strong id="cropHVal">256</strong>px
+                                <input type="range" id="cropHInput" min="128" max="512" step="64" value="256">
+                            </label>
+                        </div>
+
+                        <label class="toggle-label">
+                            <input type="checkbox" id="togglePatchGrid" checked>
+                            Show 16px Patch Grid ($P=16$)
+                        </label>
+                    </div>
+
+                    <!-- Dual Canvas View -->
+                    <div class="dual-canvas-wrapper">
+                        <!-- Left: Resized Source + Highlight Box -->
+                        <div class="canvas-panel">
+                            <div class="canvas-header">
+                                <span>Resized Source Image</span>
+                                <code id="resSourceDims">256 &times; 384</code>
+                            </div>
+                            <div class="canvas-frame">
+                                <canvas id="sourceCanvas" width="360" height="360"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Center Arrow -->
+                        <div class="crop-arrow">&xrarr;</div>
+
+                        <!-- Right: Extracted Patch -->
+                        <div class="canvas-panel">
+                            <div class="canvas-header">
+                                <span>Extracted Crop Window (Training Pair)</span>
+                                <code id="cropWindowDims">256 &times; 256</code>
+                            </div>
+                            <div class="canvas-frame">
+                                <canvas id="croppedCanvas" width="256" height="256"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RoPE Telemetry Chips -->
+                    <div class="telemetry-bar">
+                        <span class="tele-chip">
+                            Offset: <strong id="teleOffset">(0, 0)</strong>
+                        </span>
+                        <span class="tele-chip">
+                            $r_H$: <strong id="teleRH">1.000</strong>
+                        </span>
+                        <span class="tele-chip">
+                            $r_W$: <strong id="teleRW">1.000</strong>
+                        </span>
+                        <span class="tele-chip">
+                            RoPE Center $(x, y)$:
+                            <strong id="teleRoPE">(0.00, 0.00)</strong>
+                        </span>
+                        <span class="tele-chip">
+                            Tensor Shape:
+                            <strong id="teleStaticStatus" class="text-success">Static Square (No JIT Break)</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4.3 Interactive RoPE Phase Shift & Attention Kernel Inspector -->
+            <div class="defense-subcard" id="secRopeInspector">
+                <h3>4.3 RoPE Phase Shift &amp; Attention Kernel Inspector</h3>
+                <p class="section-desc">
+                    Click any probe patch $(\star)$ on the $16 \times 16$ grid ($256^2$ canvas) to
+                    evaluate the normalized 2D axial rotary kernel
+                    $K(\mathbf{p}_i, \mathbf{p}_j) = \sum_{k=0}^{d_s-1} \frac{\cos((y_i - y_j)\omega_k) + \cos((x_i -
+                    x_j)\omega_k)}{2 d_s}$
+                    (8 channels plotted per axis). Switch modes to diagnose phase collapse:
+                </p>
+
+                <div class="rope-inspector-box">
+                    <!-- Mode Toggles -->
+                    <div class="rope-mode-toggles">
+                        <button class="btn btn-secondary" id="btnRopeModeA">
+                            Mode A: Discrete RoPE (Non-Square Aspect)
+                        </button>
+                        <button class="btn btn-secondary" id="btnRopeModeB">
+                            Mode B: Broken Continuous RoPE (Uncalibrated)
+                        </button>
+                        <button class="btn btn-secondary active-preset" id="btnRopeModeC">
+                            Mode C: Calibrated Continuous RoPE (Asuka-FM)
+                        </button>
+                    </div>
+
+                    <!-- Dual View Display -->
+                    <div class="rope-dual-view">
+                        <!-- Left: Attention Kernel Heatmap -->
+                        <div class="rope-view-panel">
+                            <div class="view-panel-header">
+                                <span>Spatial Attention Kernel $K(\mathbf{p}_i, \mathbf{p}_j)$</span>
+                                <span class="probe-badge" id="probeCoordsBadge">
+                                    Probe: (8, 8)
+                                </span>
+                            </div>
+                            <div class="canvas-frame">
+                                <canvas id="kernelCanvas" width="280" height="280"></canvas>
+                            </div>
+                            <div class="heatmap-scale">
+                                <span>-0.2 (Minimum)</span>
+                                <div class="gradient-bar"></div>
+                                <span>1.0 (Maximum)</span>
+                            </div>
+                        </div>
+
+                        <!-- Right: Frequency Phase Shift Curve -->
+                        <div class="rope-view-panel">
+                            <div class="view-panel-header">
+                                <span>Adjacent Phase Shift $\Delta\theta_k$</span>
+                                <span class="probe-badge" id="maxDegBadge">
+                                    Max: 45.0&deg;
+                                </span>
+                            </div>
+                            <div class="canvas-frame">
+                                <canvas id="curveCanvas" width="280" height="280"></canvas>
+                            </div>
+                            <div class="curve-legend">
+                                <span class="leg-step green">Discrete</span>
+                                <span class="leg-step red">Broken</span>
+                                <span class="leg-step purple">Calibrated (Asuka-FM)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Diagnostic Summary Readout -->
+                    <div class="rope-diagnosis" id="ropeDiagnosis">
+                        <strong>Mode C (Calibrated Continuous RoPE):</strong> Parameter-free frequencies
+                        &omega;<sub>k</sub> are scaled log-linearly from 2&pi; down to &pi;/4
+                        (<code>register_buffer</code>). Adjacent patches separate by 45.0&deg;, restoring
+                        sharp isotropic radial decay without optimizer overhead.
+                    </div>
+                </div>
+            </div>
+        </section>
+        <!-- 5. Empirical Discoveries & Hypothesis Defense -->
+        <section class="card" id="discoveries">
+            <h2>5. Empirical Discoveries &amp; Hypothesis Defense</h2>
+            <p class="section-desc">
+                Empirical validation across open-domain and anime corpora covering
+                zero-shot virtual camera dynamics, latent-to-pixel $v$-prediction vs.
+                $x_0$-prediction, patch widening ($P=16 \to 32$), semantic attribute
+                disentanglement, and ablation curtains:
+            </p>
+
+            <!-- 5.1 Virtual Camera Flight, Manifold Support & Failure Modes -->
+            <div class="defense-subcard" id="secCameraFlight">
+                <h3>5.1 Virtual Camera Flight, Manifold Support &amp; Failure Modes</h3>
+                <p class="section-desc">
+                    Continuous aspect-normalized RoPE enables smooth virtual camera panning
+                    and optical zoom under identical noise seeds. Switch between
+                    open-domain results, anime results, and
+                    zoom failure diagnostics:
+                </p>
+
+                <!-- Domain Mode Switcher -->
+                <div class="camera-domain-bar">
+                    <button class="btn btn-secondary active-preset" id="btnCamDomainReal">
+                        Open-Domain / Real-World
+                    </button>
+                    <button class="btn btn-secondary" id="btnCamDomainAnime">
+                        Anime Corpus (Danbooru)
+                    </button>
+                    <button class="btn btn-secondary" id="btnCamDomainFailures">
+                        Zoom Failure Modes &amp; Manifold Support
+                    </button>
+                </div>
+
+                <!-- Pane A: Interactive Camera Trajectory Stage (Real & Anime) -->
+                <div id="camFlightPane">
+                    <div class="carousel-nav-row">
+                        <div class="carousel-tabs">
+                            <button class="btn btn-secondary active-preset" id="btnTrajX">
+                                X-Shift: Dachshund
+                            </button>
+                            <button class="btn btn-secondary" id="btnTrajY">
+                                Y-Shift: Wedding Cake
+                            </button>
+                            <button class="btn btn-secondary" id="btnTrajZoom">
+                                Zoom: Rose Wreath
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flight-stage">
+                        <button class="btn-caro" id="btnCaroPrev" title="Previous Step">&larr;</button>
+                        <div class="flight-viewport">
+                            <img id="flightMainImg" src="images/camera/dog_x_center.png" alt="Camera Viewport"
+                                class="flight-img">
+                            <div id="flightImgFallback" class="img-missing-fallback hidden-pane"></div>
+                        </div>
+                        <button class="btn-caro" id="btnCaroNext" title="Next Step">&rarr;</button>
+                    </div>
+
+                    <div class="flight-telemetry-panel">
+                        <div class="flight-steps-row" id="flightStepsRow">
+                            <!-- Populated dynamically by app.js -->
+                        </div>
+                        <div class="telemetry-badge" id="cameraTelemetry">
+                            Zoom: 1.00x | X: 0.00 | Y: 0.00 | Open-Domain 512px
+                        </div>
+                    </div>
+
+                    <p class="img-caption" id="cameraCaption">
+                        <strong>Horizontal Panning:</strong> Shifting <code>x_shift = +0.25</code>
+                        pans the viewport rightward, framing the dachshund toward the left canvas edge without
+                        altering knit cap details or snow texture.
+                    </p>
+                </div>
+
+                <!-- Pane B: Manifold Support & Zoom Failure Modes-->
+                <div id="camFailurePane" class="hidden-pane">
+                    <div class="pixel-dual-grid">
+                        <div class="pixel-card">
+                            <div class="pixel-card-header">
+                                <span>Canonical Scale ($z = 1.0\times$)</span>
+                                <span class="badge-mini text-success">Sharp Structure</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/camera/bench.png" alt="Unzoomed Cherry Blossom Scene (z=1.0)"
+                                    loading="lazy">
+                            </div>
+                            <p class="pixel-card-desc">
+                                At canonical unit scale ($z = 1.0\times$), the 206M backbone
+                                synthesizes coherent cobblestones, rigid wooden bench slats,
+                                and clean floral separation.
+                            </p>
+                        </div>
+
+                        <div class="pixel-card card-highlight">
+                            <div class="pixel-card-header">
+                                <span>Continuous RoPE Zoom ($z &gt; 1.0\times$)</span>
+                                <span class="badge-mini text-danger">Physical Limits</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/camera/failure_case_bench.png" alt="Continuous RoPE Zoom Artifacts"
+                                    loading="lazy">
+                                <div class="img-missing-fallback hidden-pane">
+                                    <strong>Missing Asset:</strong><br>
+                                    Export zoomed bench grid to
+                                    <code>images/camera/failure_case_bench.png</code>.
+                                </div>
+                            </div>
+                            <p class="pixel-card-desc">
+                                On complex organic compositions, magnifying via coordinate grid compression
+                                ($z &gt; 1.0\times$) can induce: (i) painterly texture smearing on cobblestones,
+                                (ii) pink pigment bleeding, and (iii) bench-slat warping via rotary phase
+                                dampening ($\Delta\theta_k \propto 1/z$).
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="camera-failure-notes">
+                        <div class="bench-callout">
+                            <strong>Manifold Support Discovery:</strong> Open-domain synthetic
+                            corpora (FLUX-Reason-6M, Midjourney-v6) are mainly centered $1024^2$ squares;
+                            shifted crops clip canonical focal points, causing warping on some prompts.
+                            Multi-aspect corpora (Danbooru, $1:2$ to $21:9$) span $[-r_H, r_H] \times [-r_W, r_W]$
+                            and establish broader spatial invariance.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5.2 Latent-to-Pixel Adaptation: v-Pred vs. x0-Pred & Patch Compression -->
+            <div class="defense-subcard" id="secPixelAdaptation">
+                <h3>5.2 Latent-to-Pixel Adaptation: $v$-Pred vs. $x_0$-Pred &amp; Patch Compression</h3>
+                <p class="section-desc">
+                    Adapting the converged <code>Asuka-512</code> latent backbone directly to RGB
+                    pixels via the 10.09M Patch Detailer Head (PDH) (<code>57.65h</code> on RTX 4090,
+                    <code>$19.04</code>) eliminates the online VAE bottleneck (<code>59.4%&ndash;72.6%</code>
+                    training wall; up to <code>3.34&times;</code> faster 1-step inference). Below are
+                    the $512^2$ prediction objective, large-patch scaling ($P=16 \to 32$), and
+                    $256^2$ diagnostic ablations:
+                </p>
+
+                <!-- Sub-Navigation Toggles -->
+                <div class="tab-btn-row">
+                    <button class="btn btn-secondary active-preset" id="btnPixelObj">
+                        512px: Native $v$-Pred vs. $x_0$-Pred
+                    </button>
+                    <button class="btn btn-secondary" id="btnPixelPatch">
+                        Patch Compression ($P=16 \to 32$)
+                    </button>
+                    <button class="btn btn-secondary" id="btnPixelToyDiag">
+                        Toy-Scale Diagnostics (256px): Staged FT &amp; $x_0$ Clipping
+                    </button>
+                </div>
+
+                <!-- Pane 1: 512px Native v-Pred vs x0-Pred -->
+                <div id="panePixelObj" class="pixel-pane">
+                    <div class="pixel-dual-grid">
+                        <div class="pixel-card">
+                            <div class="pixel-card-header">
+                                <span>Stage 3 SFT ($x_0$-Prediction Ablation, $512^2$)</span>
+                                <span class="badge-mini text-accent">GenEval 0.545</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/comparisons/pixel/pixel_512_x0_pred.png"
+                                    alt="512px Pixel DiT x0-Prediction Samples" loading="lazy">
+                                <div class="img-missing-fallback hidden-pane">
+                                    <strong>Add 512px $x_0$-Prediction Grid:</strong><br>
+                                    Place generated $512^2$ $x_0$-pred samples at
+                                    <code>images/comparisons/pixel/pixel_512_x0_pred.png</code>.
+                                </div>
+                            </div>
+                            <div class="pixel-metrics-strip">
+                                <span class="pixel-metric-pill">GenEval: <strong>0.545</strong></span>
+                                <span class="pixel-metric-pill">Color-Attr: <strong>0.348</strong></span>
+                                <span class="pixel-metric-pill">Colors: <strong>0.707</strong></span>
+                                <span class="pixel-metric-pill">DPG: <strong>76.32</strong></span>
+                            </div>
+                            <p class="pixel-card-desc">
+                                Converting $\hat{x}_0$ into velocity targets $v_t = (x_t - \hat{x}_0)/t$
+                                triggers $t \to 0$ singularities in <code>bfloat16</code>, forcing dynamic
+                                percentile clipping that flattens dynamic range and desaturates colors
+                                (Stage 2B Synth: 0.477 GenEval / 0.628 Colors).
+                            </p>
+                        </div>
+
+                        <div class="pixel-card card-highlight">
+                            <div class="pixel-card-header">
+                                <span>Stage 3 SFT (Native $v$-Prediction, Final Pixel DiT)</span>
+                                <span class="badge-mini text-success">GenEval 0.568 (Zero Clip)</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/comparisons/pixel/pixel_512_v_pred.png"
+                                    alt="512px Final Pixel DiT Native v-Prediction Samples" loading="lazy">
+                                <div class="img-missing-fallback hidden-pane">
+                                    <strong>Add 512px Native $v$-Prediction Grid:</strong><br>
+                                    Place generated $512^2$ $v$-pred samples at
+                                    <code>images/comparisons/pixel/pixel_512_v_pred.png</code>.
+                                </div>
+                            </div>
+                            <div class="pixel-metrics-strip">
+                                <span class="pixel-metric-pill text-success">GenEval: <strong>0.568</strong></span>
+                                <span class="pixel-metric-pill text-success">Color-Attr: <strong>0.420</strong></span>
+                                <span class="pixel-metric-pill text-success">Colors: <strong>0.750</strong></span>
+                                <span class="pixel-metric-pill">DPG: <strong>75.31</strong></span>
+                            </div>
+                            <p class="pixel-card-desc">
+                                Direct velocity regression maintains smooth probability paths with
+                                <strong>zero activation clipping</strong>, recovering &gt;95% of the latent
+                                anchor (0.609 GenEval / 78.51 DPG) while boosting Two-Object (0.780 vs. 0.699)
+                                and Color Attribution (+0.072; Stage 2B Synth: 0.505 GenEval / 0.726 Colors).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pane 2: Progressive Patch Compression (P=16 -> 32) -->
+                <div id="panePixelPatch" class="pixel-pane hidden-pane">
+                    <div class="pixel-dual-grid">
+                        <div class="pixel-card">
+                            <div class="pixel-card-header">
+                                <span>$512^2$ Pixel DiT ($P = 16$, $N = 1,024$ Tokens)</span>
+                                <span class="badge-mini text-success">0.568 GenEval | 0.493s (30s)</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/comparisons/pixel/pixel_512_p16.png"
+                                    alt="512px Pixel DiT P=16 Baseline" loading="lazy">
+                                <div class="img-missing-fallback hidden-pane">
+                                    <strong>Add 512px $P=16$ Sample Grid:</strong><br>
+                                    Place generated $512^2$ $P=16$ samples at
+                                    <code>images/comparisons/pixel/pixel_512_p16.png</code>.
+                                </div>
+                            </div>
+                            <p class="pixel-card-desc">
+                                <strong>Full Resolution Patch Grid ($P=16$):</strong> 1,024 tokens at $512^2$.
+                                Achieves <strong>0.568 GenEval / 75.31 DPG</strong> (Color-Attr 0.420).
+                                A40 sampling latency (BS=32): 0.329s (20 steps) / 0.493s (30 steps).
+                            </p>
+                        </div>
+
+                        <div class="pixel-card card-highlight">
+                            <div class="pixel-card-header">
+                                <span>$512^2$ Large Patch (`ps32-adapt16`, $P = 32$, $N = 256$)</span>
+                                <span class="badge-mini text-accent">1.78&times; Faster | 0.277s (30s)</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/comparisons/pixel/pixel_512_p32.png"
+                                    alt="512px Pixel DiT P=32 Large Patch Samples" loading="lazy">
+                                <div class="img-missing-fallback hidden-pane">
+                                    <strong>Add 512px `ps32-adapt16` ($P=32$) Sample Grid:</strong><br>
+                                    Place generated $512^2$ $P=32$ samples at
+                                    <code>images/comparisons/pixel/pixel_512_p32.png</code>.
+                                </div>
+                            </div>
+                            <p class="pixel-card-desc">
+                                <strong>4&times; Token Compression (+25 Ep, 72.0h, $23.76):</strong> Cuts sequence
+                                length to 256 tokens. Sampling drops to <strong>0.187s (20s) / 0.277s (30s)</strong>
+                                on A40 (beating 30-step latent+VAE 0.374s), trading compositional binding
+                                (0.504 GenEval / 69.87 DPG) for ultra-fast throughput.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Collapsible Toy-Scale (256px) Staged Widening Evidence -->
+                    <details class="proof-collapse" style="margin-top: 14px;">
+                        <summary>Toy-Scale $256^2$ Staged Widening ($P=16 \to 32$) Visuals &amp; Divergence Matrix</summary>
+                        <div class="proof-body">
+                            <div class="patch-matrix-grid">
+                                <table class="benchmark-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Toy-Scale Configuration ($256^2$ Portraits)</th>
+                                            <th>Tokens ($N$)</th>
+                                            <th>Epochs</th>
+                                            <th>FID &darr;</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Latent DiT Baseline</td>
+                                            <td>256 ($p=2, f=8$)</td>
+                                            <td>1,000</td>
+                                            <td><strong>2.42 &ndash; 3.06</strong></td>
+                                            <td><span class="tag-done">Converged</span></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Pixel DiP (Stage 2, $P=16$, Dyn. Clip)</td>
+                                            <td>256 ($16 \times 16$)</td>
+                                            <td>85</td>
+                                            <td>14.39</td>
+                                            <td><span class="tag-done">Sharp Lines</span></td>
+                                        </tr>
+                                        <tr class="row-danger">
+                                            <td>Pixel DiP (Direct $P=32$ from Scratch)</td>
+                                            <td>64 ($8 \times 8$)</td>
+                                            <td>1</td>
+                                            <td>&infin;</td>
+                                            <td><span class="tag-fail">Diverged (NaN)</span></td>
+                                        </tr>
+                                        <tr class="row-highlight">
+                                            <td>Pixel `ps32-adapt16` (Staged $P=16 \to 32$)</td>
+                                            <td>64 ($8 \times 8$)</td>
+                                            <td>50</td>
+                                            <td>33.80</td>
+                                            <td><span class="tag-done">4&times; Token Cut</span></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="patch-compare-grid">
+                                <div class="pixel-card">
+                                    <div class="pixel-card-header">
+                                        <span>$256^2$ $P=16$ Baseline (256 Tokens)</span>
+                                        <span class="badge-mini text-success">FID: 14.39</span>
+                                    </div>
+                                    <div class="pixel-img-frame">
+                                        <img src="images/pixel_stage2_85_epochs.png" alt="Toy 256px Patch Size 16 Grid"
+                                            loading="lazy">
+                                    </div>
+                                </div>
+                                <div class="pixel-card card-highlight">
+                                    <div class="pixel-card-header">
+                                        <span>$256^2$ `ps32-adapt16` (64 Tokens)</span>
+                                        <span class="badge-mini text-accent">FID: 33.80</span>
+                                    </div>
+                                    <div class="pixel-img-frame">
+                                        <img src="images/pixel_ps32_epoch_50.png" alt="Toy 256px Patch Size 32 Grid"
+                                            loading="lazy">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="fid-explainer">
+                                <strong>Why Toy-Scale Pixel FID Differs from Latent FID:</strong> Latent VAEs act as
+                                low-pass filters aligned with Inception-v3 statistics, whereas pixel models synthesize
+                                native high-frequency linework and subtle micro-grain that FID penalizes despite crisper
+                                visual edges. Staged adaptation ($P=16 \to 32$) stabilizes 4&times; compression where
+                                direct $P=32$ diverges immediately.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Pane 3: Toy-Scale Diagnostics (Staged Training & x0 Clipping Failure) -->
+                <div id="panePixelToyDiag" class="pixel-pane hidden-pane">
+                    <p class="section-desc">
+                        Controlled $256^2$ portrait ablations demonstrating (i) why
+                        freezing the DiT backbone during PDH warmup leaves faint grid seams until full
+                        joint fine-tuning, and (ii) why $x_0$-prediction suffers chromatic blowout without
+                        dynamic clipping&mdash;directly motivating native $v$-prediction at $512^2$:
+                    </p>
+
+                    <div class="pixel-dual-grid">
+                        <div class="pixel-card">
+                            <div class="pixel-card-header">
+                                <span>Stage 1: PDH Head Only (Ep 5&ndash;15, FID 28.40)</span>
+                                <span class="badge-mini text-accent">Frozen Backbone</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/pixel_stage1_15_epochs.png" alt="Stage 1 PDH Head Only"
+                                    id="imgPixelStage1" loading="lazy">
+                            </div>
+                            <p class="pixel-card-desc">
+                                Rapid convergence in &lt;15 epochs. Colors and semantics stabilize quickly,
+                                but faint grid seams remain visible at $16 \times 16$ patch boundaries.
+                            </p>
+                        </div>
+
+                        <div class="pixel-card card-highlight">
+                            <div class="pixel-card-header">
+                                <span>Stage 2: Joint Full FT (Ep 85, FID 14.39)</span>
+                                <span class="badge-mini text-success">End-to-End</span>
+                            </div>
+                            <div class="pixel-img-frame">
+                                <img src="images/pixel_stage2_85_epochs.png" alt="Stage 2 Full Finetuned"
+                                    id="imgPixelStage2" loading="lazy">
+                            </div>
+                            <p class="pixel-card-desc">
+                                Unfreezing the DiT backbone lets convolutional inductive bias propagate into
+                                attention layers, eliminating patch boundaries completely.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 16px;">
+                        <div class="clipping-controls">
+                            <button class="flight-step-btn active-step" id="btnClipRaw">
+                                1. Unclipped $x_0$ (Severe Shift)
+                            </button>
+                            <button class="flight-step-btn" id="btnClipNaive">
+                                2. Hard Clamp $[-1, 1]$ (FID 19.85)
+                            </button>
+                            <button class="flight-step-btn" id="btnClipDynamic">
+                                3. Dynamic Percentile Clipping (FID 14.39)
+                            </button>
+                        </div>
+
+                        <div class="clipping-display">
+                            <div class="clipping-img-wrap">
+                                <img src="images/comparisons/pixel_unclipped_grid.png" alt="Clipping Ablation Output"
+                                    id="imgClipping" loading="lazy">
+                            </div>
+                            <div class="clipping-telemetry" id="teleClipping">
+                                <div class="clip-stat">
+                                    <span class="c-label">Toy-Scale Objective</span>
+                                    <span class="c-val">$x_0$-prediction (superseded by $v$-pred at $512^2$)</span>
+                                </div>
+                                <div class="clip-stat">
+                                    <span class="c-label">Color Shift Diagnosis</span>
+                                    <span class="c-val text-danger" id="valClipDiag">
+                                        High-contrast blowout &amp; color shift (FID &gt; 50)
+                                    </span>
+                                </div>
+                                <div class="clip-stat">
+                                    <span class="c-label">Observed Effect</span>
+                                    <span class="c-desc" id="valClipDesc">
+                                        Unbounded x0 predictions extrapolate past [-1, 1], inducing
+                                        severe chromatic shifts and contrast collapse.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5.3 Semantic Disentanglement & Compound Artist Style Steering -->
+            <div class="defense-subcard" id="secDisentanglement">
+                <h3>5.3 Semantic Disentanglement &amp; Compound Artist Style Steering</h3>
+                <p class="section-desc">
+                    Verifying that our AdaLN-free Dual-Stream DiT decouples chromatic attributes from
+                    geometry and responds smoothly to compound artist tokens without
+                    explicit aesthetic SFT:
+                </p>
+                <div class="tab-btn-row">
+                    <button class="btn btn-secondary active-preset" id="btnTabColor">
+                        Color Attribute Disentanglement
+                    </button>
+                    <button class="btn btn-secondary" id="btnTabStyle">
+                        Compound Artist Style Conditioning
+                    </button>
+                </div>
+
+                <!-- Tab 1: Color Disentanglement -->
+                <div id="disentangleColorPane" class="disentangle-pane">
+                    <div class="disentangle-grid">
+                        <div class="disentangle-box">
+                            <img src="images/comparisons/disentangle_pink_small.png" alt="Pink Hair Variation"
+                                loading="lazy">
+                            <span class="matrix-tag">Prompt: pink_hair, cat_ears, maid_outfit</span>
+                        </div>
+                        <div class="disentangle-box">
+                            <img src="images/comparisons/disentangle_blue_small.png" alt="Blue Hair Variation"
+                                loading="lazy">
+                            <span class="matrix-tag">Prompt: blue_hair, cat_ears, maid_outfit</span>
+                        </div>
+                    </div>
+                    <p class="img-caption">
+                        Under identical latent noise initializations $x_1 \sim \mathcal{N}(0, \mathbf{I})$,
+                        toggling only <code>pink_hair</code> &rarr; <code>blue_hair</code> alters hair pigment
+                        while leaving facial morphology, finger poses, ribbon folds, and sparkle lighting
+                        invariant down to the pixel level.
+                    </p>
+                </div>
+
+                <!-- Tab 2: Compound Artist Style Master-Detail Inspector -->
+                <div id="disentangleStylePane" class="disentangle-pane hidden-pane">
+                    <div class="disentangle-grid" id="styleFeaturedPair">
+                        <div class="disentangle-box">
+                            <img id="styleImgA" src="images/comparisons/albedo_anime.png" alt="Style Variant A"
+                                loading="lazy">
+                            <span class="matrix-tag" id="styleTagA">Albedo: Anime Coloring</span>
+                        </div>
+                        <div class="disentangle-box">
+                            <img id="styleImgB" src="images/comparisons/albedo_artists.png" alt="Style Variant B"
+                                loading="lazy">
+                            <span class="matrix-tag" id="styleTagB">Albedo: Compound Artist Tags</span>
+                        </div>
+                    </div>
+                    <p class="img-caption" id="styleCaption">
+                        Injecting compound artist descriptors enriches volumetric rim lighting,
+                        textured black wing plumage, and gold filigree embroidery while preserving
+                        pose and facial identity.
+                    </p>
+
+                    <div class="style-pairs-selector" id="stylePairsRow">
+                        <!-- Populated dynamically by app.js -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5.4 Resolution, RoPE & SPRINT Ablation Curtain (Moved to Bottom of Section 5) -->
+            <div class="defense-subcard" id="secAblationCurtain">
+                <h3>5.4 Interactive Resolution, RoPE &amp; SPRINT Ablation Curtain</h3>
+                <p class="section-desc">
+                    Drag the slider across identical random seeds to inspect resolution scaling
+                    (256px &rarr; 512px), mid-flight RoPE calibration, and SPRINT
+                    sparse-to-dense recovery at 512px and 1MP:
+                </p>
+                <div class="curtain-controls">
+                    <button class="btn btn-secondary active-preset" id="btnPresetRes">
+                        256px Base vs. 512px Adapted
+                    </button>
+                    <button class="btn btn-secondary" id="btnPresetRope">
+                        Discrete RoPE Collapse vs. Calibrated
+                    </button>
+                    <button class="btn btn-secondary" id="btnPresetSprint">
+                        SPRINT Sparse (0.75) vs. Dense Refined
+                    </button>
+                    <button class="btn btn-secondary" id="btnPreset1MP">
+                        1MP SPRINT Sparse vs. Dense FT
+                    </button>
+                </div>
+
+                <div class="curtain-container" id="curtainContainer">
+                    <img src="images/sample_512_akane.png" alt="After Adaptation" class="curtain-img img-after"
+                        id="curtainAfter">
+                    <div class="curtain-before-wrapper" id="curtainBeforeWrap">
+                        <img src="images/sample_akane.png" alt="Before Adaptation" class="curtain-img"
+                            id="curtainBefore">
+                    </div>
+                    <input type="range" min="0" max="100" value="50" class="curtain-slider" id="curtainSlider">
+                    <div class="curtain-divider" id="curtainDivider"></div>
+                    <span class="curtain-badge badge-left" id="badgeBefore">
+                        256px Base
+                    </span>
+                    <span class="curtain-badge badge-right" id="badgeAfter">
+                        512px Adapted
+                    </span>
+                </div>
+
+                <p class="img-caption curtain-caption" id="curtainCaption">
+                    <strong>Canvas Scaling (256&sup2; &rarr; 512&sup2;):</strong> Adapting to 512&times;512
+                    resolves intricate floral kimono patterns, umbrella ribs, and crisp iris highlights
+                    while preserving global pose and color harmony.
+                </p>
+            </div>
+        </section>
+        <!-- BibTeX Citation -->
+        <section class="card" id="bibtex">
+            <div class="bibtex-header">
+                <h2>Citation</h2>
+                <button class="btn btn-secondary" id="btnCopyBibtex" type="button">
+                    Copy BibTeX
+                </button>
+            </div>
+            <p class="section-desc">
+                If you find Asuka-FM or our systems profiling useful for your research, please cite
+                (arXiv identifier will be updated upon public posting):
+            </p>
+            <pre class="bibtex-block" id="bibtexCode">@article{rodrigo2026asukafm,
+  title   = {Asuka-FM: A System-Architectural Co-Design Framework for Efficient Text-to-Image Pretraining on Consumer Hardware},
+  author  = {Rodrigo Gonz{\'a}lez, V{\'i}ctor and Olmos, Pablo M. and Peis, Ignacio and Lancho, Alejandro},
+  journal = {arXiv preprint arXiv:XXXX.XXXXX},
+  year    = {2026},
+  note    = {Forthcoming}
+}</pre>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Asuka-FM &bull; Scalable Flow Matching Diffusion Transformers</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
