@@ -45,7 +45,8 @@
             <div class="affiliations">
                 <span><sup>1</sup>Department of Signal Theory and Communications, Universidad Carlos III de Madrid
                     (UC3M), Spain</span> &bull;
-                <span><sup>2</sup>Department of Applied Mathematics and Computer Science, Technical University of Denmark (DTU), Denmark</span> &bull;
+                <span><sup>2</sup>Department of Applied Mathematics and Computer Science, Technical University of
+                    Denmark (DTU), Denmark</span> &bull;
                 <span><sup>3</sup>Math Institute, Universidad de Granada, Spain</span>
             </div>
             <div class="resource-links">
@@ -69,10 +70,10 @@
                     rel="noopener noreferrer" class="btn-resource">
                     <span class="icon">&#128190;</span> Data (337K Anime)
                 </a>
-                <span class="btn-resource disabled-resource" title="arXiv preprint releasing soon">
-                    <span class="icon">&#128196;</span> arXiv (Coming Soon)
-                </span>
-
+                <a href="https://arxiv.org/abs/2611.26437" target="_blank" rel="noopener noreferrer"
+                    class="btn-resource">
+                    <span class="icon">&#128196;</span> arXiv
+                </a>
             </div>
             <div class="tag-row">
                 <span class="badge">206M Dual-Stream DiT</span>
@@ -163,24 +164,23 @@
                 <div class="showcase-header">
                     <h3>Zero-Shot Synthesis Showcase</h3>
                     <div class="showcase-switch-row">
-                        <button class="btn btn-secondary active-preset" id="btnShowcaseAnime">
-                            Anime Domain (Danbooru)
-                        </button>
-                        <button class="btn btn-secondary" id="btnShowcaseReal">
+                        <button class="btn btn-secondary active-preset" id="btnShowcaseReal">
                             Open-Domain / Real-World
+                        </button>
+                        <button class="btn btn-secondary" id="btnShowcaseAnime">
+                            Anime Domain (Danbooru)
                         </button>
                     </div>
                 </div>
 
                 <div class="showcase-display-frame">
-                    <img id="showcaseImg" src="images/anime_showcase_grid.png"
-                        alt="Asuka-FM High-Quality Zero-Shot Samples">
+                    <img id="showcaseImg" src="images/showcase.png" alt="Asuka-FM High-Quality Zero-Shot Samples">
                 </div>
 
                 <p class="img-caption" id="showcaseCaption">
-                    <strong>Anime Domain:</strong> Zero-shot synthesis from our 206M dual-stream backbone
-                    pretrained on 337K Danbooru illustrations. Demonstrates sharp linework, anatomical consistency, and
-                    multi-concept binding without human aesthetic post-filtering.
+                    <strong>Open-Domain General Corpus:</strong> High-fidelity zero-shot visual synthesis across
+                    diverse open-domain subjects (landscapes, animals, cinematic text scenes) trained from scratch on
+                    625K balanced multi-source samples in 161.2 hours ($53.20).
                 </p>
             </div>
         </section>
@@ -1185,7 +1185,8 @@
                 <h3 style="margin-top: 22px;">Consumer RTX 4090 vs. Datacenter NVIDIA A40 &amp; Online VAE Wall</h3>
                 <p class="section-desc">
                     Despite half the VRAM (24 GB vs. 48 GB), the RTX 4090 executes compiled latent steps
-                    <strong>1.97&times; faster</strong> than the A40 because its <strong>12&times; larger L2 cache</strong>
+                    <strong>1.97&times; faster</strong> than the A40 because its <strong>12&times; larger L2
+                        cache</strong>
                     (72 MB vs. 6 MB) keeps TorchInductor Triton kernels on-chip and avoids GDDR6 fallback (1,008 vs. 696
                     GB/s).
                     Conversely, on-the-fly FLUX.2 VAE encoding at high resolutions starves the GPU:
@@ -1409,7 +1410,8 @@
                                         <td class="num-col">$1.98</td>
                                     </tr>
                                     <tr class="table-category-row">
-                                        <td colspan="10">Stage 3: Native Megapixel Scaling (1024 &times; 1024, 4,096 Image
+                                        <td colspan="10">Stage 3: Native Megapixel Scaling (1024 &times; 1024, 4,096
+                                            Image
                                             Tokens)</td>
                                     </tr>
                                     <tr>
@@ -2300,7 +2302,8 @@
 
                     <!-- Collapsible Toy-Scale (256px) Staged Widening Evidence -->
                     <details class="proof-collapse" style="margin-top: 14px;">
-                        <summary>Toy-Scale $256^2$ Staged Widening ($P=16 \to 32$) Visuals &amp; Divergence Matrix</summary>
+                        <summary>Toy-Scale $256^2$ Staged Widening ($P=16 \to 32$) Visuals &amp; Divergence Matrix
+                        </summary>
                         <div class="proof-body">
                             <div class="patch-matrix-grid">
                                 <table class="benchmark-table">
@@ -2584,16 +2587,14 @@
                 </button>
             </div>
             <p class="section-desc">
-                If you find Asuka-FM or our systems profiling useful for your research, please cite
-                (arXiv identifier will be updated upon public posting):
+                If you find Asuka-FM or our systems profiling useful for your research, please cite:
             </p>
             <pre class="bibtex-block" id="bibtexCode">@article{rodrigo2026asukafm,
-  title   = {Asuka-FM: A System-Architectural Co-Design Framework for Efficient Text-to-Image Pretraining on Consumer Hardware},
-  author  = {Rodrigo Gonz{\'a}lez, V{\'i}ctor and Olmos, Pablo M. and Peis, Ignacio and Lancho, Alejandro},
-  journal = {arXiv preprint arXiv:XXXX.XXXXX},
-  year    = {2026},
-  note    = {Forthcoming}
-}</pre>
+              title   = {Asuka-FM: A System-Architectural Co-Design Framework for Efficient Text-to-Image Pretraining on Consumer Hardware},
+              author  = {Rodrigo Gonz{\'a}lez, V{\'i}ctor and Olmos, Pablo M. and Peis, Ignacio and Lancho, Alejandro},
+              journal = {arXiv preprint arXiv:2611.26437},
+              year    = {2026}
+            }</pre>
         </section>
     </main>
 
